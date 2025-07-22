@@ -1,32 +1,108 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+
 import Image from "next/image"
 import Link from "next/link"
+
+import { supabase } from "../../../../lib/supabase"
+import { useRouter } from "next/navigation"
+import { useWallet } from "@solana/wallet-adapter-react"
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Card, CardDescription, CardTitle } from "@/components/ui/card"
+import { toast } from "sonner"
 
-export default function LoginPage() {
-  const [userRole, setUserRole] = useState<"viewer" | "creator">("viewer")
+export default function SignupPage() {
+  const [userRole, setUserRole] = useState<"viewer" | "creator">("viewer");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
+  const [handle, setHandle] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const wallet = useWallet();
+
+  const router = useRouter();
+
+  const handleSignUp = async () => {
+    setLoading(true);
+
+    try {
+      if (!email || !password || !username || !handle) {
+        toast.warning('All fields are required');
+        return
+      }
+
+      if (userRole === "creator" && !wallet.publicKey) {
+        toast.warning("Creators must connect a Solana wallet.")
+        return
+      }
+
+      // 1. Register with Supabase auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      })
+
+      if (authError) throw authError;
+
+      const userId = authData.user?.id
+      if (!userId) throw new Error("User ID not found after sign up.");
+
+      // 2. Insert profile record
+      const { error: profileError } = await supabase.from("profiles").insert({
+        id: userId,
+        username,
+        handle,
+        role: userRole,
+        solana_wallet_address: userRole === "creator" ? wallet.publicKey?.toBase58() : null,
+      });
+
+      if (profileError) throw profileError;
+
+      toast.success("Signup successful! Redirecting")
+
+      router.push("/login");
+    
+    } catch (err: any) {
+      toast.error(err.message || "Something went wrong during sign up.");
+
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <Card className="w-full max-w-4xl lg:grid lg:grid-cols-2 xl:min-h-[600px] overflow-hidden">
       <div className="flex items-center justify-center py-12">
         <div className="mx-auto w-[350px] space-y-6">
           <div className="space-y-2 text-center">
-            <CardTitle className="text-3xl font-bold">Login to Memwarzz</CardTitle>
+            <CardTitle className="text-3xl font-bold">Sign Up to Memwarzz</CardTitle>
             <CardDescription className="text-muted-foreground">
-              Enter your details below or connect your wallet
+              Enter your details below
             </CardDescription>
           </div>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="m@example.com" required />
+              <Label htmlFor="email">Username</Label>
+              <Input id="username" type="text" onChange={e => setUsername(e.target.value)} placeholder="JohnDoe" required />
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="handle">Handle (unique)</Label>
+              <Input id="handle" value={handle} onChange={e => setHandle(e.target.value)} placeholder="yourname" required />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" type="email" onChange={e => setEmail(e.target.value)} placeholder="m@example.com" required />
+            </div>
+
             <div className="space-y-2">
               <div className="flex items-center">
                 <Label htmlFor="password">Password</Label>
@@ -34,8 +110,9 @@ export default function LoginPage() {
                   Forgot your password?
                 </Link>
               </div>
-              <Input id="password" type="password" required />
+              <Input id="password" type="password"  onChange={e => setPassword(e.target.value)} placeholder="Minimum 6 characters" required />
             </div>
+
             <div className="space-y-2">
               <Label>I am a:</Label>
               <RadioGroup
@@ -53,19 +130,23 @@ export default function LoginPage() {
                 </div>
               </RadioGroup>
             </div>
-            <Button type="submit" className="w-full">
-              Login
+            
+            <Button type="submit" className="w-full" onClick={handleSignUp} disabled={loading}>
+              {loading ? "Signing up..." : "Sign Up"}
             </Button>
+
             {userRole === "creator" && (
-              <Button variant="outline" className="w-full bg-transparent">
-                Connect Solana Wallet
-              </Button>
+              <div className="space-y-2 min-w-[100px] w-full">
+                <Label>Connect Wallet</Label>
+                <WalletMultiButton className="w-full justify-center" />
+              </div>
             )}
           </div>
+
           <div className="mt-4 text-center text-sm">
-            Don&apos;t have an account?{" "}
-            <Link href="#" className="underline">
-              Sign up
+            Already have an account?{" "}
+            <Link href="/login" className="underline">
+              Login
             </Link>
           </div>
         </div>

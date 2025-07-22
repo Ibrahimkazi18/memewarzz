@@ -1,6 +1,6 @@
 "use client"
 
-import { Calendar, Home, Compass, Settings, PlusCircle, User, Trophy, Sun, Moon } from "lucide-react"
+import { Calendar, Home, Compass, Settings, PlusCircle, User, Trophy, Sun, Moon, LogOut } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +20,18 @@ import { ChevronDown } from "lucide-react"
 import { Switch } from "@/components/ui/switch" 
 import { Label } from "@/components/ui/label" 
 import { useTheme } from "next-themes"
+import { supabase } from "../../lib/supabase";
+import { toast } from "sonner"
+
+const handleLogout = async () => {
+  const { error } = await supabase.auth.signOut()
+  if (error) {
+    console.error("Logout error:", error.message)
+  } else {
+    toast("Logging Out...")
+    window.location.href = "/login"
+  }
+}
 
 // Menu items.
 const mainItems = [
@@ -42,6 +54,11 @@ const mainItems = [
     title: "Create Meme Coin",
     url: "/create-meme-coin",
     icon: PlusCircle,
+  },
+  {
+    title: "Sponsor",
+    url: "/sponsor",
+    icon: Calendar,
   },
 ]
 
@@ -87,7 +104,7 @@ export function AppSidebar() {
                 <DropdownMenuItem>
                   <span>Switch Account</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLogout}>
                   <span>Logout</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -95,6 +112,8 @@ export function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
+
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Main Navigation</SidebarGroupLabel>
@@ -113,7 +132,9 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
         <SidebarSeparator />
+
         <SidebarGroup>
           <SidebarGroupLabel>Account</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -128,18 +149,13 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <Link href="/sponsor">
-                    <Calendar className="w-4 h-4" />
-                    <span>Sponsor</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
         <SidebarSeparator />
+
+
         {/* Theme Toggle in Sidebar */}
         <SidebarGroup>
           <SidebarGroupLabel>Appearance</SidebarGroupLabel>
@@ -157,6 +173,7 @@ export function AppSidebar() {
             </div>
           </SidebarGroupContent>
         </SidebarGroup>
+
       </SidebarContent>
     </Sidebar>
   )
