@@ -1,6 +1,6 @@
 "use client"
 
-import { Calendar, Home, Compass, Settings, PlusCircle, User, Trophy, Sun, Moon } from "lucide-react"
+import { Calendar, Home, Compass, Settings, PlusCircle, User, Sun, Moon, Droplet, DropletOff, Flame } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -34,14 +34,24 @@ const mainItems = [
     icon: Compass,
   },
   {
-    title: "Recreate Meme",
-    url: "/recreate-meme",
-    icon: Trophy,
-  },
-  {
     title: "Create Meme Coin",
     url: "/create-meme-coin",
     icon: PlusCircle,
+  },
+  {
+    title: "Create Liquidity Pool",
+    url: "/create-lp",
+    icon: Droplet,
+  },
+  {
+    title: "Remove Liquidity Pool",
+    url: "/remove-lp",
+    icon: DropletOff,
+  },
+  {
+    title: "Burn Coin",
+    url: "/burn-coin",
+    icon: Flame,
   },
 ]
 

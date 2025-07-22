@@ -72,7 +72,7 @@ export default function LoginPage() {
       </div>
       <div className="hidden bg-muted lg:block">
         <Image
-          src="/placeholder.svg?height=1080&width=1920"
+          src="/vercel.svg?height=1080&width=1920"
           alt="Abstract background"
           width="1920"
           height="1080"
