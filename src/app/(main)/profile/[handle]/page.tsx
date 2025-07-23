@@ -10,11 +10,15 @@ import useFollowStats from "@/hooks/useFollows"
 import useProfile from "@/hooks/useProfile"
 import Image from "next/image"
 import Link from "next/link"
-import { formatNumberShort } from "../../../../utils/helper"
+import { useRouter } from "next/navigation"
+import { formatNumberShort } from "../../../../../utils/helper"
+
 
 export default function ProfilePage() {
   const {profile} = useProfile();
   const { followersCount, followingCount } = useFollowStats(profile?.id)
+
+  const router = useRouter();
 
   return (
     <ProtectedRoute>
@@ -26,9 +30,9 @@ export default function ProfilePage() {
           </Avatar>
 
           <div className="text-center md:text-left">
-            <h1 className="text-3xl font-bold">{profile?.username} | <span className="capitalize">{profile?.role}</span></h1>
+            <h1 className="text-3xl font-bold">MemeMaster</h1>
 
-            <p className="text-muted-foreground text-lg">@{profile?.handle}</p>
+            <p className="text-muted-foreground text-lg">@mememaster_official</p>
 
             <p className="mt-2 max-w-md">
               Passionate meme creator and battle enthusiast. Bringing the freshest content to Memwarzz!
@@ -45,6 +49,12 @@ export default function ProfilePage() {
                 <span className="font-semibold text-lg">87</span> Posts
               </div>
             </div>
+
+            <div className="mt-4 flex justify-center md:justify-start gap-2">
+              <Button>Follow</Button>
+              <Button variant="outline">Message</Button>
+            </div>
+
           </div>
         </div>
 

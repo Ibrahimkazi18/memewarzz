@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label"
 import { useTheme } from "next-themes"
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner"
+import { useEffect, useState } from "react"
 
 const handleLogout = async () => {
   const { error } = await supabase.auth.signOut()
@@ -76,7 +77,37 @@ const accountItems = [
 ]
 
 export function AppSidebar() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme } = useTheme();
+
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError) {
+        console.error("Error getting user:", userError.message)
+        return
+      }
+
+      const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user?.id)
+        .single()
+
+      if (profileError) {
+        console.error("Error fetching profile:", profileError.message)
+      } else {
+        setProfile(profileData);
+      }
+    }
+
+    fetchUserProfile();
+  }, []);
 
   return (
     <Sidebar collapsible="icon" className="overflow-x-hidden">
@@ -91,11 +122,11 @@ export function AppSidebar() {
                 >
                   <Avatar className="size-8">
                     <AvatarImage src="/placeholder-user.jpg" alt="@memwarzz" />
-                    <AvatarFallback>MW</AvatarFallback>
+                    <AvatarFallback>{profile?.username.split(" ")[0][0]}</AvatarFallback>
                   </Avatar>
                   <div className="flex flex-col gap-0.5 leading-none">
-                    <span className="font-semibold">Memwarzz</span>
-                    <span className="text-xs text-muted-foreground">@memwarzz_app</span>
+                    <span className="font-semibold">{profile?.username}</span>
+                    <span className="text-xs text-muted-foreground">@{profile?.handle}</span>
                   </div>
                   <ChevronDown className="ml-auto" />
                 </SidebarMenuButton>
