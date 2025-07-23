@@ -20,6 +20,12 @@
     "@radix-ui/react-switch": "^1.2.5",
     "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-tooltip": "^1.2.7",
+    "@solana/spl-token": "^0.1.8",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/wallet-adapter-wallets": "^0.19.37",
+    "@solana/web3.js": "^1.98.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "install": "^0.13.0",
@@ -29,6 +35,7 @@
     "npm": "^11.4.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "sonner": "^2.0.6",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {

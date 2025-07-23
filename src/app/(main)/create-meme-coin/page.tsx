@@ -1,46 +1,69 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Upload } from 'lucide-react';
-import { Switch } from '@/components/ui/switch';
+import type React from "react";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Upload } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Coins, Flame, Plus, Minus } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
-export default function TokenCreatorPage() {
-
+export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
-    name: '',
-    symbol: '',
+    name: "",
+    symbol: "",
     decimals: 6,
-    description: '',
+    description: "",
     file: null as File | null,
-    totalSupply: '',
+    totalSupply: "",
     revokeMint: false,
     revokeMintLater: false,
     revokeFreeze: true,
   });
 
+  const { publicKey, signTransaction, sendTransaction } = useWallet();
+
+  const ConnectWalletSection = () => {
+    return (
+      <div className="flex justify-center py-6">
+        <WalletMultiButton />
+      </div>
+    );
+  };
+
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
-
-    if (!formData.name.trim()) newErrors.name = 'Token name is required.';
-    if (!formData.symbol.trim()) newErrors.symbol = 'Symbol is required.';
-    if (formData.symbol.length > 8) newErrors.symbol = 'Symbol cannot exceed 8 characters.';
+    if (!formData.name.trim()) newErrors.name = "Token name is required.";
+    if (!formData.symbol.trim()) newErrors.symbol = "Symbol is required.";
+    if (formData.symbol.length > 8)
+      newErrors.symbol = "Symbol cannot exceed 8 characters.";
     if (!formData.decimals || formData.decimals < 1 || formData.decimals > 9)
-      newErrors.decimals = 'Decimals must be between 1 and 9.';
-    if (formData.file === null) newErrors.file = "Image is required." ;
-    if (!formData.description.trim()) newErrors.description = "Description is required.";
-    if (formData.description.length > 300) newErrors.description = "Description cannot exceed 300 characters.";
+      newErrors.decimals = "Decimals must be between 1 and 9.";
+    if (formData.file === null) newErrors.file = "Image is required.";
+    if (!formData.description.trim())
+      newErrors.description = "Description is required.";
+    if (formData.description.length > 300)
+      newErrors.description = "Description cannot exceed 300 characters.";
     if (!formData.totalSupply) {
-      newErrors.totalSupply = 'Supply is required.';
+      newErrors.totalSupply = "Supply is required.";
     } else {
-      const supply = parseFloat(formData.totalSupply);
+      const supply = Number.parseFloat(formData.totalSupply);
       if (isNaN(supply) || supply <= 0) {
-        newErrors.totalSupply = 'Enter a valid supply.';
+        newErrors.totalSupply = "Enter a valid supply.";
       } else {
         const decimal = formData.decimals;
         const maxSupply =
@@ -51,13 +74,11 @@ export default function TokenCreatorPage() {
             : decimal === 8
             ? 184_467_440_737
             : 18_446_744_073;
-
         if (supply > maxSupply) {
           newErrors.totalSupply = `For decimals ${decimal}, max supply is ${maxSupply.toLocaleString()}`;
         }
       }
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -69,179 +90,402 @@ export default function TokenCreatorPage() {
 
   const handleSubmit = () => {
     if (!validate()) return;
-    alert('Validated successfully!');
+    alert("Validated successfully!");
+    console.log(formData)
+    console.log(publicKey)
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12 space-y-8">
-
+    <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
       {/* Hero Section */}
-      <section className="text-center space-y-2">
-        <h1 className="text-3xl font-bold">Create Meme Token</h1>
-        <p className="text-gray-700 dark:text-zinc-100">
-          Create your own solana meme token without coding anything in 8 easy steps!
+      <section className="text-center space-y-3">
+        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+          Meme Coin Tools
+        </h1>
+        <p className="text-lg text-muted-foreground">
+          Manage your meme tokens and liquidity pools with ease.
         </p>
-        <p className="text-sm text-gray-600 dark:text-zinc-300">
-          Takes less than 5 minutes, fully on-chain.
-        </p>
+        <ConnectWalletSection/>
       </section>
 
-      {/* Instructions */}
-      <section className="bg-muted p-4 rounded-xl shadow space-y-2">
-        <h2 className="text-xl font-semibold text-center">How it works</h2>
-        <ol className="list-decimal list-inside text-gray-700 dark:text-zinc-300 space-y-1">
-          <li>Connect your Solana wallet.</li>
-          <li>Enter your Token Name</li>
-          <li>Choose a Symbol (max 8 characters)</li>
-          <li>Select Decimals (recommended: 6)</li>
-          <li>Add a description (optional)</li>
-          <li>Upload a PNG image (token logo)</li>
-          <li>Enter total Supply</li>
-          <li>Click Create – confirm the transaction</li>
-        </ol>
-        <p className="text-sm dark:bg-white bg-zinc-950 p-2 rounded-t-md rounded-b-2xl dark:text-zinc-950 text-zinc-200 text-center">
-          Total cost: 0.3 SOL – includes all creation fees.
-        </p>
-      </section>
+      <Tabs defaultValue="create-token" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-12">
+          <TabsTrigger
+            value="create-token"
+            className="text-base flex items-center gap-2"
+          >
+            <Coins className="w-4 h-4" /> Create Token
+          </TabsTrigger>
+          <TabsTrigger
+            value="burn-coin"
+            className="text-base flex items-center gap-2"
+          >
+            <Flame className="w-4 h-4" /> Burn Coin
+          </TabsTrigger>
+          <TabsTrigger
+            value="add-liquidity"
+            className="text-base flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Add Liquidity
+          </TabsTrigger>
+          <TabsTrigger
+            value="remove-liquidity"
+            className="text-base flex items-center gap-2"
+          >
+            <Minus className="w-4 h-4" /> Remove Liquidity
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Form Section */}
-      <section>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-center">Token Creator</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-6">
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <CardTitle>Token Name (Max 32 Characters)</CardTitle>
-                <Input
-                  placeholder="Eg: MemeToken"
-                  maxLength={32}
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-                {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
-              </div>
-
-              <div>
-                <CardTitle>Token Symbol (Max 8 Characters)</CardTitle>
-                <Input
-                  placeholder="Eg: MEME"
-                  maxLength={8}
-                  value={formData.symbol}
-                  onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
-                />
-                {errors.symbol && <p className="text-red-500 text-sm mt-1">{errors.symbol}</p>}
-              </div>
-
-              <div>
-                <CardTitle>Decimals (Range 1-9)</CardTitle>
-                <Input
-                  type="number"
-                  placeholder="Decimals"
-                  value={formData.decimals}
-                  min={1}
-                  max={9}
-                  onChange={(e) =>
-                    setFormData({ ...formData, decimals: parseInt(e.target.value || '0') })
-                  }
-                />
-                {errors.decimals && <p className="text-red-500 text-sm mt-1">{errors.decimals}</p>}
-              </div>
-
-              <div>
-                <CardTitle>Total Supply</CardTitle>
-                <Input
-                  type="number"
-                  placeholder="Eg: 1000000000"
-                  value={formData.totalSupply}
-                  onChange={(e) => setFormData({ ...formData, totalSupply: e.target.value })}
-                />
-                {errors.totalSupply && <p className="text-red-500 text-sm mt-1">{errors.totalSupply}</p>}
-              </div>
+        {/* Create Token Tab Content */}
+        <TabsContent value="create-token" className="mt-8 space-y-8">
+          <section className="bg-muted p-6 rounded-xl shadow-lg space-y-4">
+            <h2 className="text-2xl font-semibold text-center">How it works</h2>
+            <ol className="list-decimal list-inside text-muted-foreground space-y-2">
+              <li>Connect your Solana wallet.</li>
+              <li>Enter your Token Name</li>
+              <li>Choose a Symbol (max 8 characters)</li>
+              <li>Select Decimals (recommended: 6)</li>
+              <li>Add a description (optional)</li>
+              <li>Upload a PNG image (token logo)</li>
+              <li>Enter total Supply</li>
+              <li>Click Create – confirm the transaction</li>
+            </ol>
+            <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border border-primary/20">
+              Total cost:{" "}
+              <span className="font-semibold text-primary">0.3 SOL</span> –
+              includes all creation fees.
             </div>
+          </section>
 
-            <div>
-            <CardTitle>Description</CardTitle>
-            <Textarea
-              placeholder="Eg: This is just a meme token made for fun :P"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            />
-            {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
-            </div>
-
-            {/* File Upload */}
-            <label className="grid grid-cols-1 text-center mx-auto items-center gap-2 p-2 border rounded cursor-pointer w-fit h-50 bg-muted hover:bg-accent text-sm dark:text-white">
-              <Upload className="w-10 h-10 mx-auto" />
-              <span>{formData.file?.name || 'Upload Token Logo (PNG)'}</span>
-              <input required type="file" accept="image/png" className="hidden grow" onChange={handleFileUpload} />
-              {errors.file && <p className="text-red-500 text-sm mt-1">{errors.file}</p>}
-            </label>
-
-            {/* Freeze Authority Switch */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-center">Revoke Freeze Authority</CardTitle>
+          <section>
+            <Card className="shadow-lg">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl">Token Creator</CardTitle>
+                <CardDescription>
+                  Fill in the details to create your new token.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2 text-center text-sm text-gray-700 dark:text-white">
-                <p>
-                  Required for creating a liquidity pool. This ensures no one can freeze token accounts.
-                </p>
-                <div className="flex justify-center items-center gap-2">
-                  <Switch checked disabled/>
-                  <span>(0.1 SOL)</span>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="token-name">
+                      Token Name (Max 32 Characters)
+                    </Label>
+                    <Input
+                      id="token-name"
+                      placeholder="Eg: MemeToken"
+                      maxLength={32}
+                      value={formData.name}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                    />
+                    {errors.name && (
+                      <p className="text-destructive text-sm mt-1">
+                        {errors.name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="token-symbol">
+                      Token Symbol (Max 8 Characters)
+                    </Label>
+                    <Input
+                      id="token-symbol"
+                      placeholder="Eg: MEME"
+                      maxLength={8}
+                      value={formData.symbol}
+                      onChange={(e) =>
+                        setFormData({ ...formData, symbol: e.target.value })
+                      }
+                    />
+                    {errors.symbol && (
+                      <p className="text-destructive text-sm mt-1">
+                        {errors.symbol}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="decimals">Decimals (Range 1-9)</Label>
+                    <Input
+                      id="decimals"
+                      type="number"
+                      placeholder="Decimals"
+                      value={formData.decimals}
+                      min={1}
+                      max={9}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          decimals: Number.parseInt(e.target.value || "0"),
+                        })
+                      }
+                    />
+                    {errors.decimals && (
+                      <p className="text-destructive text-sm mt-1">
+                        {errors.decimals}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="total-supply">Total Supply</Label>
+                    <Input
+                      id="total-supply"
+                      type="number"
+                      placeholder="Eg: 1000000000"
+                      value={formData.totalSupply}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          totalSupply: e.target.value,
+                        })
+                      }
+                    />
+                    {errors.totalSupply && (
+                      <p className="text-destructive text-sm mt-1">
+                        {errors.totalSupply}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Mint Authority Switch */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-center">Revoke Mint Authority</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-center text-sm text-gray-700 dark:text-white">
-                <p>
-                  Prevents any further minting of tokens – useful for building trust. Optional.
-                </p>
-                <div className="flex justify-center items-center gap-2">
-                  <Switch className='cursor-pointer'
-                    checked={formData.revokeMint}
-                    onCheckedChange={(val) => setFormData({ ...formData, revokeMint: val })}
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    placeholder="Eg: This is just a meme token made for fun :P"
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
                   />
-                  <span>(0.1 SOL)</span>
+                  {errors.description && (
+                    <p className="text-destructive text-sm mt-1">
+                      {errors.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* File Upload */}
+                <div className="space-y-2">
+                  <Label htmlFor="file-upload">Token Logo (PNG)</Label>
+                  <div className="relative flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
+                    <Upload className="w-10 h-10 text-muted-foreground mb-2" />
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {formData.file?.name ||
+                        "Click to upload or drag and drop"}
+                    </span>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      accept="image/png"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={handleFileUpload}
+                    />
+                  </div>
+                  {errors.file && (
+                    <p className="text-destructive text-sm mt-1">
+                      {errors.file}
+                    </p>
+                  )}
+                </div>
+
+                {/* Freeze Authority Switch */}
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                  <div className="space-y-1">
+                    <Label htmlFor="revoke-freeze" className="text-base">
+                      Revoke Freeze Authority
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Required for creating a liquidity pool. This ensures no
+                      one can freeze token accounts.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch id="revoke-freeze" checked disabled />
+                    <span className="text-sm text-muted-foreground">
+                      (0.1 SOL)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mint Authority Switch */}
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                  <div className="space-y-1">
+                    <Label htmlFor="revoke-mint" className="text-base">
+                      Revoke Mint Authority
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Prevents any further minting of tokens – useful for
+                      building trust. Optional.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="revoke-mint"
+                      checked={formData.revokeMint}
+                      onCheckedChange={(val) =>
+                        setFormData({ ...formData, revokeMint: val })
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      (0.1 SOL)
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  className="w-full mt-4"
+                  size="lg"
+                  onClick={handleSubmit}
+                >
+                  Create Token
+                </Button>
+              </CardContent>
+            </Card>
+          </section>
+
+          {/* Mint Revoke For Deployed Tokens Section*/}
+          <section className="space-y-4">
+            <Card className="shadow-lg">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl">
+                  Revoke Mint Authority (Deployed Tokens)
+                </CardTitle>
+                <CardDescription>
+                  For tokens already created without mint authority revoked.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground text-center">
+                  You can revoke minting permissions after token creation if not
+                  done earlier.
+                </p>
+                <div className="flex justify-center items-center gap-2">
+                  <Switch
+                    checked={formData.revokeMintLater}
+                    onCheckedChange={(val) =>
+                      setFormData({ ...formData, revokeMintLater: val })
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    (0.1 SOL)
+                  </span>
                 </div>
               </CardContent>
             </Card>
+          </section>
+        </TabsContent>
 
-            <Button className="w-full mt-4 cursor-pointer" onClick={handleSubmit}>
-              Create Token
-            </Button>
-          </CardContent>
-        </Card>
-      </section>
+        {/* Burn Coin Tab Content */}
+        <TabsContent value="burn-coin" className="mt-8">
+          <Card className="shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Burn Meme Coin</CardTitle>
+              <CardDescription>
+                Reduce the total supply of your token by burning a specified
+                amount.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="token-address-burn">Token Address</Label>
+                <Input
+                  id="token-address-burn"
+                  placeholder="Enter token address (e.g., 7x...)"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="amount-to-burn">Amount to Burn</Label>
+                <Input
+                  id="amount-to-burn"
+                  type="number"
+                  placeholder="e.g., 1000000"
+                  min="0"
+                />
+              </div>
+              <Button className="w-full" size="lg">
+                Burn Tokens
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      {/* Mint Revoke For Deployed Tokens Section*/}
-      <section className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-center">Revoke Mint Authority</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-center text-sm text-gray-700 dark:text-white">
-            <p>
-              You can revoke minting permissions after token creation if not done earlier.
-            </p>
-            <div className="flex justify-center items-center gap-2">
-              <Switch className='cursor-pointer'
-                checked={formData.revokeMintLater}
-                onCheckedChange={(val) => setFormData({ ...formData, revokeMintLater: val })}
-              />
-              <span>(0.1 SOL)</span>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+        {/* Add Liquidity Pool Tab Content */}
+        <TabsContent value="add-liquidity" className="mt-8">
+          <Card className="shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Add Liquidity Pool</CardTitle>
+              <CardDescription>
+                Create or add liquidity to a trading pair for your token.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="token-address-lp">Your Token Address</Label>
+                <Input
+                  id="token-address-lp"
+                  placeholder="Enter your token address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="sol-amount">SOL Amount</Label>
+                <Input
+                  id="sol-amount"
+                  type="number"
+                  placeholder="e.g., 10"
+                  min="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="token-amount">Your Token Amount</Label>
+                <Input
+                  id="token-amount"
+                  type="number"
+                  placeholder="e.g., 10000000"
+                  min="0"
+                />
+              </div>
+              <Button className="w-full" size="lg">
+                Add Liquidity
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Remove Liquidity Pool Tab Content */}
+        <TabsContent value="remove-liquidity" className="mt-8">
+          <Card className="shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Remove Liquidity Pool</CardTitle>
+              <CardDescription>
+                Withdraw your assets from an existing liquidity pool.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="lp-token-address">LP Token Address</Label>
+                <Input
+                  id="lp-token-address"
+                  placeholder="Enter LP token address"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="lp-amount">Amount of LP Tokens to Remove</Label>
+                <Input
+                  id="lp-amount"
+                  type="number"
+                  placeholder="e.g., 50"
+                  min="0"
+                />
+              </div>
+              <Button className="w-full" size="lg">
+                Remove Liquidity
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
