@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "../../lib/supabase"
 import { Loader } from "lucide-react"
 import { toast } from "sonner"
+import { createClient } from "../../utils/supabase/client"
+
+const supabase = createClient();
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const router = useRouter()

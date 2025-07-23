@@ -17,7 +17,7 @@ export function RightPanel() {
   const router = useRouter()
 
   return (
-    <div className="hidden lg:block w-72 xl:w-80 p-4 space-y-6">
+    <div className="hidden lg:block w-72 xl:w-80 p-4 space-y-6 overflow-hidden">
       {/* Profile Preview Card */}
       <Card className="shadow-lg">
         <CardHeader className="pb-4 text-center">
@@ -71,7 +71,7 @@ export function RightPanel() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity Card */}
+      {/* Recent Activity Card
       <Card className="shadow-lg">
         <CardHeader className="pb-4">
           <CardTitle className="text-xl">Recent Activity</CardTitle>
@@ -131,7 +131,7 @@ export function RightPanel() {
             </div>
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   )
 }

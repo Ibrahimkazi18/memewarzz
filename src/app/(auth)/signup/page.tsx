@@ -5,7 +5,6 @@ import { useState, useEffect } from "react"
 import Image from "next/image"
 import Link from "next/link"
 
-import { supabase } from "../../../../lib/supabase"
 import { useRouter } from "next/navigation"
 import { useWallet } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
@@ -16,6 +15,10 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Card, CardDescription, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
+
+import { createClient } from "../../../../utils/supabase/client"
+
+const supabase = createClient();
 
 export default function SignupPage() {
   const [userRole, setUserRole] = useState<"viewer" | "creator">("viewer");

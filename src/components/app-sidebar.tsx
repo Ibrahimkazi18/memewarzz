@@ -22,7 +22,9 @@ import { Label } from "@/components/ui/label"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { useEffect, useState } from "react"
-import { supabase } from "../../lib/supabase"
+import { createClient } from "../../utils/supabase/client"
+
+const supabase = createClient();
 
 const handleLogout = async () => {
   const { error } = await supabase.auth.signOut()

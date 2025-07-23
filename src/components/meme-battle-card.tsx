@@ -1,25 +1,39 @@
+"use client"
+
+import type React from "react"
+
 import Link from "next/link"
-import Image from "next/image"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
-import { Heart, MessageCircle, Share2, MoreHorizontal, ThumbsUp, ThumbsDown } from "lucide-react"
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { useState } from "react"
 
 interface MemeBattleCardProps {
+  id: string
   username: string
   userHandle: string
-  userAvatar: string
+  userAvatar: string | null
   meme1Image: string
   meme2Image: string
   meme1Votes: number
   meme2Votes: number
-  sponsorLogo?: string
+  sponsorLogo: string | null
   timeAgo: string
   comments: { user: string; text: string }[]
+  onVote: (battleId: string, votedMemeId: string) => Promise<void>
+  onLike: (postId: string, type: "meme" | "battle") => Promise<void>
+  onComment: (postId: string, type: "meme" | "battle", content: string) => Promise<void>
+  meme1CreatorUsername: string
+  meme2CreatorUsername: string
+  meme1Id: string
+  meme2Id: string
 }
 
 export function MemeBattleCard({
+  id,
   username,
   userHandle,
   userAvatar,
@@ -30,116 +44,129 @@ export function MemeBattleCard({
   sponsorLogo,
   timeAgo,
   comments,
+  onVote,
+  onLike,
+  onComment,
+  meme1CreatorUsername,
+  meme2CreatorUsername,
+  meme1Id,
+  meme2Id,
 }: MemeBattleCardProps) {
+  const [commentText, setCommentText] = useState("")
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (commentText.trim()) {
+      await onComment(id, "battle", commentText)
+      setCommentText("")
+    }
+  }
+
   return (
-    <Card className="w-full max-w-xl mx-auto border-none shadow-none rounded-none md:border md:shadow-sm md:rounded-lg overflow-hidden">
-      <CardHeader className="flex flex-row items-center p-4 pb-3">
-        <Link href="#" className="flex items-center gap-3 text-sm font-semibold">
-          <Avatar className="w-10 h-10 border-2 border-primary/20">
-            <AvatarImage src={userAvatar || "/placeholder.svg?height=40&width=40&query=user%20avatar"} alt={username} />
+    <Card className="border-0 rounded-none shadow-none">
+      <CardHeader className="flex flex-row items-center p-4">
+        <Link href={`/profile/${userHandle}`} className="flex items-center gap-2 text-sm font-semibold">
+          <Avatar className="w-8 h-8 border">
+            <AvatarImage src={userAvatar || "/placeholder-user.jpg"} alt={`@${userHandle}`} />
             <AvatarFallback>{username.charAt(0)}</AvatarFallback>
           </Avatar>
-          <div className="flex flex-col">
-            <span className="text-base">{username}</span>
-            <span className="text-xs text-muted-foreground font-normal">
-              @{userHandle} &bull; {timeAgo}
-            </span>
-          </div>
+          {username}
         </Link>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-8 h-8 ml-auto rounded-full text-muted-foreground hover:bg-accent"
-            >
+            <Button variant="ghost" size="icon" className="w-8 h-8 ml-auto rounded-full">
               <MoreHorizontal className="w-4 h-4" />
-              <span className="sr-only">More options</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem className="text-destructive focus:text-destructive">Report Battle</DropdownMenuItem>
+            <DropdownMenuItem>Save</DropdownMenuItem>
+            <DropdownMenuItem>Report</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="grid grid-cols-2 gap-0.5 bg-border">
-          <div className="relative group">
+        <div className="grid grid-cols-2 gap-2 p-2">
+          <div className="flex flex-col items-center gap-2">
             <Image
-              src={meme1Image || "/placeholder.svg?height=300&width=450&query=meme%20battle%20left"}
+              src={meme1Image || "/placeholder.svg"}
               width={450}
               height={300}
               alt="Meme 1"
-              className="object-cover w-full aspect-[3/2] bg-muted group-hover:scale-105 transition-transform duration-200"
+              className="object-cover w-full aspect-[3/2] rounded-md"
             />
-            <div className="absolute bottom-2 left-2 bg-background/80 px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1">
-              <ThumbsUp className="w-4 h-4 text-primary" /> {meme1Votes.toLocaleString()} Votes
-            </div>
+            <p className="text-sm font-medium">by {meme1CreatorUsername}</p>
+            <Button onClick={() => onVote(id, meme1Id)} className="w-full">
+              Vote ({meme1Votes})
+            </Button>
           </div>
-          <div className="relative group">
+          <div className="flex flex-col items-center gap-2">
             <Image
-              src={meme2Image || "/placeholder.svg?height=300&width=450&query=meme%20battle%20right"}
+              src={meme2Image || "/placeholder.svg"}
               width={450}
               height={300}
               alt="Meme 2"
-              className="object-cover w-full aspect-[3/2] bg-muted group-hover:scale-105 transition-transform duration-200"
+              className="object-cover w-full aspect-[3/2] rounded-md"
             />
-            <div className="absolute bottom-2 right-2 bg-background/80 px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1">
-              <ThumbsUp className="w-4 h-4 text-primary" /> {meme2Votes.toLocaleString()} Votes
-            </div>
+            <p className="text-sm font-medium">by {meme2CreatorUsername}</p>
+            <Button onClick={() => onVote(id, meme2Id)} className="w-full">
+              Vote ({meme2Votes})
+            </Button>
           </div>
         </div>
-        <div className="flex justify-around p-3 border-y border-border bg-muted/50">
-          <Button variant="default" className="flex-1 mx-1.5 py-2 h-auto text-base">
-            <ThumbsUp className="w-4 h-4 mr-2" /> Vote Left
-          </Button>
-          <Button variant="default" className="flex-1 mx-1.5 py-2 h-auto text-base">
-            <ThumbsDown className="w-4 h-4 mr-2" /> Vote Right
-          </Button>
-        </div>
         {sponsorLogo && (
-          <div className="p-3 flex items-center justify-center bg-muted/70 text-xs text-muted-foreground border-t border-border">
-            Sponsored by:{" "}
+          <div className="flex justify-center p-2">
             <Image
-              src={sponsorLogo || "/placeholder.svg?height=20&width=60&query=sponsor%20logo"}
+              src={sponsorLogo || "/placeholder.svg"}
+              width={60}
+              height={20}
               alt="Sponsor Logo"
-              width={80}
-              height={25}
-              className="ml-2 object-contain"
+              className="object-contain"
             />
           </div>
         )}
       </CardContent>
-      <CardFooter className="grid gap-3 p-4 pt-3">
+      <CardFooter className="grid gap-2 p-2 pb-4">
         <div className="flex items-center w-full">
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-            <Heart className="w-5 h-5" />
+          <Button variant="ghost" size="icon" onClick={() => onLike(id, "battle")}>
+            <Heart className="w-4 h-4" />
             <span className="sr-only">Like</span>
           </Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-            <MessageCircle className="w-5 h-5" />
+          <Button variant="ghost" size="icon">
+            <MessageCircle className="w-4 h-4" />
             <span className="sr-only">Comment</span>
           </Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary">
-            <Share2 className="w-5 h-5" />
+          <Button variant="ghost" size="icon">
+            <Send className="w-4 h-4" />
             <span className="sr-only">Share</span>
+          </Button>
+          <Button variant="ghost" size="icon" className="ml-auto">
+            <Bookmark className="w-4 h-4" />
+            <span className="sr-only">Bookmark</span>
           </Button>
         </div>
         <div className="px-2 text-sm w-full grid gap-1.5">
+          <div className="text-xs text-gray-500">{timeAgo}</div>
           {comments.map((comment, index) => (
             <div key={index}>
-              <Link href="#" className="font-semibold hover:underline">
+              <Link href={`/profile/${comment.user}`} className="font-medium">
                 {comment.user}
               </Link>{" "}
               {comment.text}
             </div>
           ))}
-          {comments.length > 0 && (
-            <Link href="#" className="text-muted-foreground text-xs hover:underline mt-1">
-              View all {comments.length} comments
-            </Link>
-          )}
         </div>
+        <form onSubmit={handleCommentSubmit} className="flex gap-2 px-2">
+          <input
+            type="text"
+            placeholder="Add a comment..."
+            className="flex-1 p-2 text-sm border rounded-md"
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+          />
+          <Button type="submit" variant="ghost">
+            Post
+          </Button>
+        </form>
       </CardFooter>
     </Card>
   )
