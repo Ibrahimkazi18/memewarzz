@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,11 +12,10 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Upload } from "lucide-react";
+import { DropletIcon, DropletOff, Upload, Coins, Flame } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Coins, Flame, Plus, Minus } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
@@ -83,16 +82,37 @@ export default function TokenManagementPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setFormData({ ...formData, file });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type !== "image/png") {
+        alert("Only PNG files are allowed.");
+
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        setImageFile(null);
+        setFileName(null);
+        setPreviewUrl(null);
+
+        return;
+      }
+      setImageFile(file);
+      setFileName(file.name);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
   };
 
   const handleSubmit = () => {
     if (!validate()) return;
     alert("Validated successfully!");
-    console.log(formData)
-    console.log(publicKey)
+    console.log(formData);
+    console.log(publicKey);
   };
 
   return (
@@ -105,7 +125,7 @@ export default function TokenManagementPage() {
         <p className="text-lg text-muted-foreground">
           Manage your meme tokens and liquidity pools with ease.
         </p>
-        <ConnectWalletSection/>
+        <ConnectWalletSection />
       </section>
 
       <Tabs defaultValue="create-token" className="w-full">
@@ -126,13 +146,13 @@ export default function TokenManagementPage() {
             value="add-liquidity"
             className="text-base flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" /> Add Liquidity
+            <DropletIcon className="w-4 h-4" /> Add Liquidity
           </TabsTrigger>
           <TabsTrigger
             value="remove-liquidity"
             className="text-base flex items-center gap-2"
           >
-            <Minus className="w-4 h-4" /> Remove Liquidity
+            <DropletOff className="w-4 h-4" /> Remove Liquidity
           </TabsTrigger>
         </TabsList>
 
@@ -270,17 +290,34 @@ export default function TokenManagementPage() {
                 <div className="space-y-2">
                   <Label htmlFor="file-upload">Token Logo (PNG)</Label>
                   <div className="relative flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
-                    <Upload className="w-10 h-10 text-muted-foreground mb-2" />
                     <span className="text-sm font-medium text-muted-foreground">
-                      {formData.file?.name ||
-                        "Click to upload or drag and drop"}
+                      {previewUrl ? (
+                        <div>
+                          <img
+                            src={previewUrl}
+                            alt="Selected Preview"
+                            className="mx-auto h-32 w-32 object-cover rounded-md border"
+                          />
+                          {fileName && (
+                            <p className="text-sm mt-2">
+                              Selected file: {fileName}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid-cols-1">
+                          <Upload className="w-10 mx-auto justify-center h-10 text-muted-foreground mb-2" />
+                          Click to upload or drag and drop
+                        </div>
+                      )}
                     </span>
                     <input
                       id="file-upload"
                       type="file"
                       accept="image/png"
                       className="absolute inset-0 opacity-0 cursor-pointer"
-                      onChange={handleFileUpload}
+                      onChange={handleImageChange}
+                      ref={fileInputRef}
                     />
                   </div>
                   {errors.file && (
