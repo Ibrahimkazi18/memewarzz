@@ -1,6 +1,5 @@
 "use client";
 
-import type React from "react";
 import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -32,27 +31,24 @@ export default function TokenManagementPage() {
     revokeFreeze: true,
   });
 
-  const { publicKey, signTransaction, sendTransaction } = useWallet();
-
-  const ConnectWalletSection = () => {
-    return (
-      <div className="flex justify-center py-6">
-        <WalletMultiButton />
-      </div>
-    );
-  };
+  const { publicKey } = useWallet();
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
+
     if (!formData.name.trim()) newErrors.name = "Token name is required.";
     if (!formData.symbol.trim()) newErrors.symbol = "Symbol is required.";
     if (formData.symbol.length > 8)
       newErrors.symbol = "Symbol cannot exceed 8 characters.";
     if (!formData.decimals || formData.decimals < 1 || formData.decimals > 9)
       newErrors.decimals = "Decimals must be between 1 and 9.";
-    if (formData.file === null) newErrors.file = "Image is required.";
+    if (!imageFile) newErrors.file = "Image is required.";
     if (!formData.description.trim())
       newErrors.description = "Description is required.";
     if (formData.description.length > 300)
@@ -64,42 +60,33 @@ export default function TokenManagementPage() {
       if (isNaN(supply) || supply <= 0) {
         newErrors.totalSupply = "Enter a valid supply.";
       } else {
-        const decimal = formData.decimals;
         const maxSupply =
-          decimal <= 4
+          formData.decimals <= 4
             ? 1_844_674_407_370_955
-            : decimal <= 7
+            : formData.decimals <= 7
             ? 1_844_674_407_370
-            : decimal === 8
+            : formData.decimals === 8
             ? 184_467_440_737
             : 18_446_744_073;
         if (supply > maxSupply) {
-          newErrors.totalSupply = `For decimals ${decimal}, max supply is ${maxSupply.toLocaleString()}`;
+          newErrors.totalSupply = `For decimals ${formData.decimals}, max supply is ${maxSupply.toLocaleString()}`;
         }
       }
     }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.type !== "image/png") {
         alert("Only PNG files are allowed.");
-
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+        if (fileInputRef.current) fileInputRef.current.value = "";
         setImageFile(null);
         setFileName(null);
         setPreviewUrl(null);
-
         return;
       }
       setImageFile(file);
@@ -108,16 +95,65 @@ export default function TokenManagementPage() {
     }
   };
 
-  const handleSubmit = () => {
+  const uploadToPinata = async () => {
+    if (!imageFile) return null;
+
+    const form = new FormData();
+    form.append("file", imageFile);
+
+    const res = await fetch("/api/uploadToPinata", {
+      method: "POST",
+      body: form,
+    });
+
+    if (!res.ok) {
+      console.error("Failed to upload to IPFS");
+      return null;
+    }
+
+    const data = await res.json();
+    return data.ipfs_hash as string;
+  };
+
+  const handleSubmit = async () => {
     if (!validate()) return;
-    alert("Validated successfully!");
+
+    const ipfsHash = await uploadToPinata();
+
+    if (!ipfsHash) {
+      alert("IPFS upload failed.");
+      return;
+    }
+
+    alert("Validated & Uploaded Successfully!");
+    console.log("IPFS Hash:", ipfsHash);
     console.log(formData);
     console.log(publicKey);
+
+    setFormData({
+      name: "",
+      symbol: "",
+      decimals: 6,
+      description: "",
+      file: null,
+      totalSupply: "",
+      revokeMint: false,
+      revokeMintLater: false,
+      revokeFreeze: true,
+    });
+    setImageFile(null);
+    setFileName(null);
+    setPreviewUrl(null);
   };
+
+  const ConnectWalletSection = () => (
+    <div className="flex justify-center py-6">
+      <WalletMultiButton />
+    </div>
+  );
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
-      {/* Hero Section */}
       <section className="text-center space-y-3">
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           Meme Coin Tools
@@ -375,6 +411,7 @@ export default function TokenManagementPage() {
                   className="w-full mt-4"
                   size="lg"
                   onClick={handleSubmit}
+                  type="submit"
                 >
                   Create Token
                 </Button>
