@@ -8,33 +8,26 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardDescription, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { useRouter } from "next/navigation"
-import { createClient } from "../../../../utils/supabase/client"
-
-const supabase = createClient();
+import { login } from "../actions"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const router = useRouter();
-
   async function handleLogin(e: React.FormEvent) {
     setLoading(true);
     e.preventDefault()
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const response = await login({
       email,
       password,
     })
 
-    if (error) {
-      toast.error("Login failed: " + error.message);
+    if (response.error) {
+      toast.error("Login failed: " + response.error);
     } else {
       toast.success("Logged in successfully!");
-      console.log("User:", data.user);
-      router.push("/");
     }
 
     setLoading(false);
