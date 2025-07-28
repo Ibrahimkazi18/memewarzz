@@ -152,6 +152,17 @@ export default function TokenManagementPage() {
     </div>
   );
 
+  const metadata = {
+  name: formData.name,
+  symbol: formData.symbol,
+  description: formData.description,
+  image: imageFile,
+  properties: {
+    files: [{ uri: imageFile, type: "image/png" }],
+    category: "image",
+  },
+};
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
       <section className="text-center space-y-3">
