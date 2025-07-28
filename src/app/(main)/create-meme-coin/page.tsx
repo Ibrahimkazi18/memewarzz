@@ -69,7 +69,9 @@ export default function TokenManagementPage() {
             ? 184_467_440_737
             : 18_446_744_073;
         if (supply > maxSupply) {
-          newErrors.totalSupply = `For decimals ${formData.decimals}, max supply is ${maxSupply.toLocaleString()}`;
+          newErrors.totalSupply = `For decimals ${
+            formData.decimals
+          }, max supply is ${maxSupply.toLocaleString()}`;
         }
       }
     }
@@ -115,6 +117,27 @@ export default function TokenManagementPage() {
     return data.ipfs_hash as string;
   };
 
+  const uploadMetadataToPinata = async (metadata: any) => {
+    const formData = new FormData();
+    const blob = new Blob([JSON.stringify(metadata, null, 2)], {
+      type: "application/json",
+    });
+    formData.append("file", blob, "metadata.json");
+
+    const res = await fetch("/api/uploadMetadataToPinata", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      console.error("Failed to upload metadata file");
+      return null;
+    }
+
+    const data = await res.json();
+    return data.ipfs_hash as string;
+  };
+
   const handleSubmit = async () => {
     if (!validate()) return;
 
@@ -125,10 +148,24 @@ export default function TokenManagementPage() {
       return;
     }
 
+    const imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
     alert("Validated & Uploaded Successfully!");
     console.log("IPFS Hash:", ipfsHash);
     console.log(formData);
     console.log(publicKey);
+
+    const metadata = {
+      name: formData.name,
+      symbol: formData.symbol,
+      description: formData.description,
+      image: imageUrl,
+    };
+
+    const metadataHash = await uploadMetadataToPinata(metadata);
+    if (!metadataHash) return;
+
+    const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
+    console.log("Metadata URL:", metadataUrl);
 
     setFormData({
       name: "",
@@ -151,17 +188,6 @@ export default function TokenManagementPage() {
       <WalletMultiButton />
     </div>
   );
-
-  const metadata = {
-  name: formData.name,
-  symbol: formData.symbol,
-  description: formData.description,
-  image: imageFile,
-  properties: {
-    files: [{ uri: imageFile, type: "image/png" }],
-    category: "image",
-  },
-};
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
