@@ -17,6 +17,15 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import {
+  Connection,
+  clusterApiUrl,
+  PublicKey,
+} from "@solana/web3.js";
+
+const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -31,7 +40,7 @@ export default function TokenManagementPage() {
     revokeFreeze: true,
   });
 
-  const { publicKey } = useWallet();
+  const { publicKey, sendTransaction, wallet } = useWallet();
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -166,6 +175,8 @@ export default function TokenManagementPage() {
 
     const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
     console.log("Metadata URL:", metadataUrl);
+
+    const connection = new Connection(clusterApiUrl("devnet"));
 
     setFormData({
       name: "",
