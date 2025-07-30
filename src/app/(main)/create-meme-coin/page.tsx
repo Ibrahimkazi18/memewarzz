@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,15 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import {
-  Connection,
-  clusterApiUrl,
-  PublicKey,
-} from "@solana/web3.js";
-
-const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
-  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
-);
+import { createTokenWithMetadata } from "@/lib/createToken";
+import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { mplTokenMetadata } from "@metaplex-foundation/mpl-token-metadata";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -40,7 +35,14 @@ export default function TokenManagementPage() {
     revokeFreeze: true,
   });
 
-  const { publicKey, sendTransaction, wallet } = useWallet();
+  const { wallet, publicKey } = useWallet();
+  const umi = useMemo(() => {
+    if (!wallet || !wallet.adapter || !publicKey) return null;
+
+    return createUmi("https://api.devnet.solana.com")
+      .use(walletAdapterIdentity(wallet.adapter))
+      .use(mplTokenMetadata());
+  }, [wallet, publicKey]);
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -158,7 +160,9 @@ export default function TokenManagementPage() {
     }
 
     const imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+    // Ye alert wagera ko toast me change karna before production
     alert("Validated & Uploaded Successfully!");
+    // Please clear these lines up as well
     console.log("IPFS Hash:", ipfsHash);
     console.log(formData);
     console.log(publicKey);
@@ -174,9 +178,23 @@ export default function TokenManagementPage() {
     if (!metadataHash) return;
 
     const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
+    // Remove this line before production plej
     console.log("Metadata URL:", metadataUrl);
 
-    const connection = new Connection(clusterApiUrl("devnet"));
+    const decimals = Number(formData.decimals);
+    const rawSupply = Number(formData.totalSupply);
+    const supply = BigInt(rawSupply * 10 ** decimals);
+
+    const {signature, mintAddress , explorerLink} = await createTokenWithMetadata({
+      name: formData.name,
+      metadataUri: metadataUrl,
+      decimals,
+      supply,
+      userWallet: umi!.identity,
+      symbol: formData.symbol,
+    });
+    // Please remove this later on 
+    console.log(`Token Signature: ${signature} \nMint Address: ${mintAddress} \nExplorer Link: ${explorerLink}`);
 
     setFormData({
       name: "",
