@@ -190,6 +190,7 @@ export default function TokenManagementPage() {
       metadataUri: metadataUrl,
       decimals,
       supply,
+      revokeMint: formData.revokeMint,
       userWallet: umi!.identity,
       symbol: formData.symbol,
     });
