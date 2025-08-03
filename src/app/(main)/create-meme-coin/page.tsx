@@ -21,6 +21,7 @@ import { createTokenWithMetadata } from "@/lib/createToken";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { mplTokenMetadata } from "@metaplex-foundation/mpl-token-metadata";
+import { mintTokensToChecked } from "@metaplex-foundation/mpl-toolbox";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -185,18 +186,18 @@ export default function TokenManagementPage() {
     const rawSupply = Number(formData.totalSupply);
     const supply = BigInt(rawSupply * 10 ** decimals);
 
-    const {signature, mintAddress , explorerLink} = await createTokenWithMetadata({
+    const {signature, mintAddress, explorerLink} = await createTokenWithMetadata({
       name: formData.name,
       metadataUri: metadataUrl,
       decimals,
       supply,
       revokeMint: formData.revokeMint,
-      userWallet: umi!.identity,
+      userWallet: wallet?.adapter!,
       symbol: formData.symbol,
     });
     // Please remove this later on 
     console.log(`Token Signature: ${signature} \nMint Address: ${mintAddress} \nExplorer Link: ${explorerLink}`);
-
+mintTokensToChecked
     setFormData({
       name: "",
       symbol: "",
