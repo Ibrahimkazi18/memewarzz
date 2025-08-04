@@ -18,10 +18,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { createTokenWithMetadata } from "@/lib/createToken";
+import { revokeMintAfter } from "@/lib/revokeMineAfter";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
-import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { mplTokenMetadata } from "@metaplex-foundation/mpl-token-metadata";
-import { mintTokensToChecked } from "@metaplex-foundation/mpl-toolbox";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -49,6 +49,8 @@ export default function TokenManagementPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  // const [tokens, setTokens] = useState<{ mint: PublicKey; name: string }[]>([]);
+  // const [selectedMint, setSelectedMint] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validate = () => {
@@ -186,18 +188,27 @@ export default function TokenManagementPage() {
     const rawSupply = Number(formData.totalSupply);
     const supply = BigInt(rawSupply * 10 ** decimals);
 
-    const {signature, mintAddress, explorerLink} = await createTokenWithMetadata({
-      name: formData.name,
-      metadataUri: metadataUrl,
-      decimals,
-      supply,
-      //revokeMint: formData.revokeMint,
-      userWallet: wallet?.adapter!,
-      symbol: formData.symbol,
-    });
-    // Please remove this later on 
-    console.log(`Token Signature: ${signature} \nMint Address: ${mintAddress} \nExplorer Link: ${explorerLink}`);
-mintTokensToChecked
+    const { signature, mintAddress, explorerLink } =
+      await createTokenWithMetadata({
+        name: formData.name,
+        metadataUri: metadataUrl,
+        decimals,
+        supply,
+        revokeMint: formData.revokeMint,
+        userWallet: wallet?.adapter!,
+        symbol: formData.symbol,
+      });
+    // Please remove this later on
+    console.log(
+      `Token Signature: ${signature} \nMint Address: ${mintAddress} \nExplorer Link: ${explorerLink}`
+    );
+    if (formData.revokeMintLater)
+    await revokeMintAfter(
+      {
+        mint: mintAddress,
+        userWallet: wallet?.adapter!,
+      }
+    );
     setFormData({
       name: "",
       symbol: "",

@@ -7,8 +7,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
   clusterApiUrl,
-  sendAndConfirmTransaction,
-} from '@solana/web3.js';
+} from "@solana/web3.js";
 import {
   ExtensionType,
   TOKEN_2022_PROGRAM_ID,
@@ -17,20 +16,20 @@ import {
   createInitializeMetadataPointerInstruction,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountInstruction,
-  mintTo,
   TYPE_SIZE,
-  MINT_SIZE,
   LENGTH_SIZE,
   createMintToCheckedInstruction,
-} from '@solana/spl-token';
+  createSetAuthorityInstruction,
+} from "@solana/spl-token";
 import {
   createInitializeInstruction,
   pack,
   TokenMetadata,
-} from '@solana/spl-token-metadata';
-import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { walletAdapterIdentity } from '@metaplex-foundation/umi-signer-wallet-adapters';
-import { WalletAdapter } from '@solana/wallet-adapter-base';
+} from "@solana/spl-token-metadata";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
+import { WalletAdapter } from "@solana/wallet-adapter-base";
+import { AuthorityType } from "@metaplex-foundation/mpl-toolbox";
 
 type CreateTokenParams = {
   name: string;
@@ -38,6 +37,12 @@ type CreateTokenParams = {
   metadataUri: string;
   decimals: number;
   supply: bigint;
+  userWallet: WalletAdapter;
+  revokeMint: boolean;
+};
+
+type RevokeAfterParams = {
+  mint: PublicKey;
   userWallet: WalletAdapter;
 };
 
@@ -48,19 +53,22 @@ export const createTokenWithMetadata = async ({
   decimals,
   supply,
   userWallet,
+  revokeMint,
 }: CreateTokenParams) => {
   // Step 1: Set up Umi for wallet integration
-  const umi = createUmi('https://api.devnet.solana.com').use(walletAdapterIdentity(userWallet));
+  const umi = createUmi("https://api.devnet.solana.com").use(
+    walletAdapterIdentity(userWallet)
+  );
   const payer = umi.identity;
 
   // Step 2: Establish connection to Solana devnet
-  const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+  const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
   // Step 3: Validate metadata URI
-  if (!metadataUri.startsWith('https://')) {
-    throw new Error('Invalid metadata URI: Must start with https://');
+  if (!metadataUri.startsWith("https://")) {
+    throw new Error("Invalid metadata URI: Must start with https://");
   }
-  console.log('Valid Metadata URI:', metadataUri);
+  console.log("Valid Metadata URI:", metadataUri);
 
   // Step 4: Generate new keypair for Mint Account
   const mintKeypair = Keypair.generate();
@@ -98,19 +106,20 @@ export const createTokenWithMetadata = async ({
   });
 
   // Initialize MetadataPointer
-  const initializeMetadataPointerInstruction = createInitializeMetadataPointerInstruction(
-    mint,
-    payerPublicKey,
-    mint,
-    TOKEN_2022_PROGRAM_ID
-  );
+  const initializeMetadataPointerInstruction =
+    createInitializeMetadataPointerInstruction(
+      mint,
+      payerPublicKey,
+      mint,
+      TOKEN_2022_PROGRAM_ID
+    );
 
   // Initialize Mint
   const initializeMintInstruction = createInitializeMintInstruction(
     mint,
     decimals,
     payerPublicKey,
-    null, // No freeze authority
+    null,
     TOKEN_2022_PROGRAM_ID
   );
 
@@ -148,7 +157,18 @@ export const createTokenWithMetadata = async ({
     supply,
     decimals,
     undefined,
-    TOKEN_2022_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  // Conditionally add revoke instruction
+
+  const revokeMintAuthorityIx = createSetAuthorityInstruction(
+    mint,
+    payerPublicKey,
+    AuthorityType.MintTokens,
+    revokeMint ? null : payerPublicKey,
+    [],
+    TOKEN_2022_PROGRAM_ID
   );
 
   // Step 9: Build transaction
@@ -158,13 +178,14 @@ export const createTokenWithMetadata = async ({
     initializeMintInstruction,
     initializeMetadataInstruction,
     createAtaInstruction,
-    mintInstruction
+    mintInstruction,
+    revokeMintAuthorityIx
   );
 
   // Step 10: Simulate transaction
-  console.log('Simulating transaction...');
+  console.log("Simulating transaction...");
   // Get latest blockhash
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
   // Convert to VersionedTransaction for simulation
   const message = new TransactionMessage({
     payerKey: payerPublicKey,
@@ -176,51 +197,68 @@ export const createTokenWithMetadata = async ({
       initializeMetadataInstruction,
       createAtaInstruction,
       mintInstruction,
+      revokeMintAuthorityIx,
     ],
   }).compileToV0Message();
   const versionedTransaction = new VersionedTransaction(message);
 
   // Sign for simulation
   versionedTransaction.sign([mintKeypair]);
-  const simulation = await connection.simulateTransaction(versionedTransaction, {
-    commitment: 'confirmed',
-    sigVerify: false, // Skip signature verification since wallet signature is added later
-  });
+  const simulation = await connection.simulateTransaction(
+    versionedTransaction,
+    {
+      commitment: "confirmed",
+      sigVerify: false,
+    }
+  );
 
-  console.log('Simulation Result:', JSON.stringify(simulation.value, null, 2));
+  console.log("Simulation Result:", JSON.stringify(simulation.value, null, 2));
   if (simulation.value.err) {
-    console.error('Simulation failed:', simulation.value.err);
-    console.log('Simulation Logs:', simulation.value.logs);
-    throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+    console.error("Simulation failed:", simulation.value.err);
+    console.log("Simulation Logs:", simulation.value.logs);
+    throw new Error(
+      `Simulation failed: ${JSON.stringify(simulation.value.err)}`
+    );
   } else {
-    console.log('Simulation Logs:', simulation.value.logs);
-    console.log('Simulation successful, proceeding with transaction...');
+    console.log("Simulation Logs:", simulation.value.logs);
+    console.log("Simulation successful, proceeding with transaction...");
   }
 
   // Step 11: Sign and send transaction
   try {
     // Use wallet adapter's sendTransaction to sign and send
-    const transactionSignature = await userWallet.sendTransaction(transaction, connection, {
-      signers: [mintKeypair],
-      skipPreflight: false,
-      preflightCommitment: 'confirmed',
-    });
+    const transactionSignature = await userWallet.sendTransaction(
+      transaction,
+      connection,
+      {
+        signers: [mintKeypair],
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+      }
+    );
 
     // Confirm the transaction
-    const { blockhash: latestBlockhash } = await connection.getLatestBlockhash('confirmed');
-    await connection.confirmTransaction({
-      signature: transactionSignature,
-      blockhash: latestBlockhash,
-      lastValidBlockHeight: (await connection.getLatestBlockhash('confirmed')).lastValidBlockHeight,
-    }, 'confirmed');
+    const { blockhash: latestBlockhash } = await connection.getLatestBlockhash(
+      "confirmed"
+    );
+    await connection.confirmTransaction(
+      {
+        signature: transactionSignature,
+        blockhash: latestBlockhash,
+        lastValidBlockHeight: (
+          await connection.getLatestBlockhash("confirmed")
+        ).lastValidBlockHeight,
+      },
+      "confirmed"
+    );
 
     return {
       signature: transactionSignature,
-      mintAddress: mint.toString(),
+      mintAddress: mint,
       explorerLink: `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`,
     };
   } catch (error) {
-    console.error('Token creation failed:', error);
+    console.error("Token creation failed:", error);
     throw error;
   }
 };
