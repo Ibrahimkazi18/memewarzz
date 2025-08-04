@@ -1,39 +1,36 @@
 import {
-  createAndMint,
-  createMetadataAccountV3,
-  createV1,
-  findMetadataPda,
-  mintV1,
-  mplTokenMetadata,
-  TokenStandard,
-} from "@metaplex-foundation/mpl-token-metadata";
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionMessage,
+  VersionedTransaction,
+  clusterApiUrl,
+  sendAndConfirmTransaction,
+} from '@solana/web3.js';
 import {
-  setAuthority,
-  AuthorityType,
-  setComputeUnitLimit,
-  createAssociatedToken,
-  SPL_TOKEN_PROGRAM_ID,
-  SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
-  mintTokensTo,
-  createAccount,
-  createMint,
-  findAssociatedTokenPda,
-} from "@metaplex-foundation/mpl-toolbox";
+  ExtensionType,
+  TOKEN_2022_PROGRAM_ID,
+  createInitializeMintInstruction,
+  getMintLen,
+  createInitializeMetadataPointerInstruction,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountInstruction,
+  mintTo,
+  TYPE_SIZE,
+  MINT_SIZE,
+  LENGTH_SIZE,
+  createMintToCheckedInstruction,
+} from '@solana/spl-token';
 import {
-  percentAmount,
-  signerIdentity,
-  Signer,
-  generateSigner,
-  transactionBuilder,
-  none,
-  publicKey,
-} from "@metaplex-foundation/umi";
-import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
-import {
-  WalletAdapter,
-  walletAdapterIdentity,
-} from "@metaplex-foundation/umi-signer-wallet-adapters";
-import { base58 } from "@metaplex-foundation/umi/serializers";
+  createInitializeInstruction,
+  pack,
+  TokenMetadata,
+} from '@solana/spl-token-metadata';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { walletAdapterIdentity } from '@metaplex-foundation/umi-signer-wallet-adapters';
+import { WalletAdapter } from '@solana/wallet-adapter-base';
 
 type CreateTokenParams = {
   name: string;
@@ -42,8 +39,8 @@ type CreateTokenParams = {
   decimals: number;
   supply: bigint;
   userWallet: WalletAdapter;
-  revokeMint?: boolean; // Optional, defaults to false
 };
+
 export const createTokenWithMetadata = async ({
   name,
   symbol,
@@ -51,137 +48,179 @@ export const createTokenWithMetadata = async ({
   decimals,
   supply,
   userWallet,
-  revokeMint = false,
 }: CreateTokenParams) => {
-  const umi = createUmi("https://api.devnet.solana.com")
-    .use(walletAdapterIdentity(userWallet))
-    .use(mplTokenMetadata());
+  // Step 1: Set up Umi for wallet integration
+  const umi = createUmi('https://api.devnet.solana.com').use(walletAdapterIdentity(userWallet));
+  const payer = umi.identity;
 
-  if (!metadataUri.startsWith("https://")) {
-    throw new Error("Invalid metadata URI: Must start with https://");
-  } else {
-    console.log("Valid Metadata URI : ", metadataUri);
+  // Step 2: Establish connection to Solana devnet
+  const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+
+  // Step 3: Validate metadata URI
+  if (!metadataUri.startsWith('https://')) {
+    throw new Error('Invalid metadata URI: Must start with https://');
   }
-  const token2022ProgramId = publicKey(
-    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-  );
-  const mint = generateSigner(umi);
+  console.log('Valid Metadata URI:', metadataUri);
 
-  // Step 1: Create Token-2022 fungible token with metadata
-  const createTokenIx = createV1(umi, {
+  // Step 4: Generate new keypair for Mint Account
+  const mintKeypair = Keypair.generate();
+  const mint = mintKeypair.publicKey;
+
+  // Step 5: Convert Umi PublicKey to web3.js PublicKey
+  const payerPublicKey = new PublicKey(payer.publicKey);
+
+  // Step 6: Define metadata
+  const metaData: TokenMetadata = {
+    updateAuthority: payerPublicKey,
     mint: mint,
     name,
     symbol,
     uri: metadataUri,
+    additionalMetadata: [],
+  };
+
+  // Step 7: Calculate mint size and lamports
+  const metadataExtension = 4; // TYPE_SIZE (2) + LENGTH_SIZE (2)
+  const metadataLen = TYPE_SIZE + LENGTH_SIZE + pack(metaData).length;
+  const mintLen = getMintLen([ExtensionType.MetadataPointer]);
+  const lamports = await connection.getMinimumBalanceForRentExemption(
+    mintLen + metadataExtension + metadataLen
+  );
+
+  // Step 8: Build instructions
+  // Create account
+  const createAccountInstruction = SystemProgram.createAccount({
+    fromPubkey: payerPublicKey,
+    newAccountPubkey: mint,
+    space: mintLen,
+    lamports,
+    programId: TOKEN_2022_PROGRAM_ID,
+  });
+
+  // Initialize MetadataPointer
+  const initializeMetadataPointerInstruction = createInitializeMetadataPointerInstruction(
+    mint,
+    payerPublicKey,
+    mint,
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  // Initialize Mint
+  const initializeMintInstruction = createInitializeMintInstruction(
+    mint,
     decimals,
-    sellerFeeBasisPoints: percentAmount(0),
-    splTokenProgram: token2022ProgramId,
-    tokenStandard: TokenStandard.Fungible,
-    authority: umi.identity,
-    updateAuthority: umi.identity,
+    payerPublicKey,
+    null, // No freeze authority
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  // Initialize Metadata
+  const initializeMetadataInstruction = createInitializeInstruction({
+    programId: TOKEN_2022_PROGRAM_ID,
+    metadata: mint,
+    updateAuthority: payerPublicKey,
+    mint: mint,
+    mintAuthority: payerPublicKey,
+    name: metaData.name,
+    symbol: metaData.symbol,
+    uri: metaData.uri,
   });
 
-  // Step 2: Create Associated Token Account (ATA) for Token-2022
-  const ata = findAssociatedTokenPda(umi, {
-    mint: mint.publicKey,
-    owner: umi.identity.publicKey,
-    tokenProgramId: token2022ProgramId, // Token program for the mint
+  // Create ATA
+  const ata = getAssociatedTokenAddressSync(
+    mint,
+    payerPublicKey,
+    false,
+    TOKEN_2022_PROGRAM_ID
+  );
+  const createAtaInstruction = createAssociatedTokenAccountInstruction(
+    payerPublicKey,
+    ata,
+    payerPublicKey,
+    mint,
+    TOKEN_2022_PROGRAM_ID
+  );
+
+  const mintInstruction = createMintToCheckedInstruction(
+    mint,
+    ata,
+    payerPublicKey,
+    supply,
+    decimals,
+    undefined,
+    TOKEN_2022_PROGRAM_ID,
+  );
+
+  // Step 9: Build transaction
+  const transaction = new Transaction().add(
+    createAccountInstruction,
+    initializeMetadataPointerInstruction,
+    initializeMintInstruction,
+    initializeMetadataInstruction,
+    createAtaInstruction,
+    mintInstruction
+  );
+
+  // Step 10: Simulate transaction
+  console.log('Simulating transaction...');
+  // Get latest blockhash
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  // Convert to VersionedTransaction for simulation
+  const message = new TransactionMessage({
+    payerKey: payerPublicKey,
+    recentBlockhash: blockhash,
+    instructions: [
+      createAccountInstruction,
+      initializeMetadataPointerInstruction,
+      initializeMintInstruction,
+      initializeMetadataInstruction,
+      createAtaInstruction,
+      mintInstruction,
+    ],
+  }).compileToV0Message();
+  const versionedTransaction = new VersionedTransaction(message);
+
+  // Sign for simulation
+  versionedTransaction.sign([mintKeypair]);
+  const simulation = await connection.simulateTransaction(versionedTransaction, {
+    commitment: 'confirmed',
+    sigVerify: false, // Skip signature verification since wallet signature is added later
   });
 
-  // Step 3: Mint tokens to user's ATA
-  const mintTokensIx = mintV1(umi, {
-    mint: mint.publicKey,
-    token: ata,
-    amount: supply,
-    authority: umi.identity,
-    tokenOwner: umi.identity.publicKey,
-    tokenStandard: TokenStandard.Fungible,
-    splTokenProgram: token2022ProgramId,
-  });
+  console.log('Simulation Result:', JSON.stringify(simulation.value, null, 2));
+  if (simulation.value.err) {
+    console.error('Simulation failed:', simulation.value.err);
+    console.log('Simulation Logs:', simulation.value.logs);
+    throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+  } else {
+    console.log('Simulation Logs:', simulation.value.logs);
+    console.log('Simulation successful, proceeding with transaction...');
+  }
 
+  // Step 11: Sign and send transaction
   try {
-    // Build and simulate the transaction
-    const builder = transactionBuilder()
-      .add(createTokenIx)
-      .add(mintTokensIx)
-    const builderWithBlockhash = await builder.setLatestBlockhash(umi);
-    const transaction = builderWithBlockhash.build(umi);
-
-    const simulation = await umi.rpc.simulateTransaction(transaction, {
-      commitment: "confirmed",
+    // Use wallet adapter's sendTransaction to sign and send
+    const transactionSignature = await userWallet.sendTransaction(transaction, connection, {
+      signers: [mintKeypair],
+      skipPreflight: false,
+      preflightCommitment: 'confirmed',
     });
 
-    console.log("Simulation Result:", simulation);
-    console.log("Simulation Logs:", simulation.logs);
-    if (simulation.err) {
-      console.error("Simulation failed:", simulation.err);
-      throw new Error(`Simulation failed: ${JSON.stringify(simulation.err)}`);
-    }
-
-    // Execute the transaction
-    const tx = await transactionBuilder()
-      .add(createTokenIx)
-      .add(mintTokensIx)
-      .sendAndConfirm(umi, { confirm: { commitment: "confirmed" } });
-
-    const signature = base58.deserialize(tx.signature)[0];
-    const signatureForTx = tx.signature;
-
-    // Debug: Check metadata account
-    const metadataPda = findMetadataPda(umi, { mint: mint.publicKey });
-    const metadataAccount = await umi.rpc.getAccount(metadataPda[0]);
-    if (metadataAccount.exists) {
-      console.log("Metadata Account Exists!");
-      console.log("Metadata Account Data:", metadataAccount.data.toString());
-    } else {
-      console.error("Metadata Account does not exist!");
-    }
-
-    // Debug: Fetch transaction logs
-    const transactionDetails = await umi.rpc.getTransaction(signatureForTx);
-    if (transactionDetails && transactionDetails.meta) {
-      console.log("Transaction Logs:", transactionDetails.meta.logs);
-    } else {
-      console.log("No transaction details available. Retrying after delay...");
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      const retryDetails = await umi.rpc.getTransaction(signatureForTx);
-      console.log(
-        "Retry Transaction Logs:",
-        retryDetails?.meta?.logs || "Still unavailable"
-      );
-    }
+    // Confirm the transaction
+    const { blockhash: latestBlockhash } = await connection.getLatestBlockhash('confirmed');
+    await connection.confirmTransaction({
+      signature: transactionSignature,
+      blockhash: latestBlockhash,
+      lastValidBlockHeight: (await connection.getLatestBlockhash('confirmed')).lastValidBlockHeight,
+    }, 'confirmed');
 
     return {
-      signature,
-      mintAddress: mint.publicKey.toString(),
-      explorerLink: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+      signature: transactionSignature,
+      mintAddress: mint.toString(),
+      explorerLink: `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`,
     };
   } catch (error) {
-    console.error("Token creation failed:", error);
+    console.error('Token creation failed:', error);
     throw error;
   }
 };
-
-// Revoke authorities (commented out as requested)
-/*
-  const revokeFreezeIx = setAuthority(umi, {
-    owned: mintSigner.publicKey,
-    owner: userWallet.publicKey,
-    authorityType: AuthorityType.FreezeAccount,
-    newAuthority: none(),
-  });
-
-  const revokeBuilder = transactionBuilder().add(revokeFreezeIx);
-
-  if (revokeMint) {
-    const revokeMintIx = setAuthority(umi, {
-      owned: mintSigner.publicKey,
-      owner: userWallet.publicKey,
-      authorityType: AuthorityType.MintTokens,
-      newAuthority: none(),
-    });
-    revokeBuilder.add(revokeMintIx);
-  }
-
-  await revokeBuilder.sendAndConfirm(umi, { confirm: { commitment: "confirmed" } });
-  */

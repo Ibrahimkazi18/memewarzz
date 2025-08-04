@@ -191,7 +191,7 @@ export default function TokenManagementPage() {
       metadataUri: metadataUrl,
       decimals,
       supply,
-      revokeMint: formData.revokeMint,
+      //revokeMint: formData.revokeMint,
       userWallet: wallet?.adapter!,
       symbol: formData.symbol,
     });
