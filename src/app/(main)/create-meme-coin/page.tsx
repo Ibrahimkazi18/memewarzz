@@ -11,17 +11,30 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { DropletIcon, DropletOff, Upload, Coins, Flame } from "lucide-react";
+import {
+  DropletIcon,
+  DropletOff,
+  Upload,
+  Coins,
+  Flame,
+  Copy,
+  ExternalLink,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { createTokenWithMetadata } from "@/lib/createToken";
-import { revokeMintAfter } from "@/lib/revokeMineAfter";
+import { revokeMintAfter } from "@/lib/revokeMintAfter";
+import { revokeFreezeAfter } from "@/lib/revokeFreezeAfter";
+import { revokeUpdateAfter } from "@/lib/revokeUpdateAfter";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
 import { mplTokenMetadata } from "@metaplex-foundation/mpl-token-metadata";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { toast, ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -32,14 +45,13 @@ export default function TokenManagementPage() {
     file: null as File | null,
     totalSupply: "",
     revokeMint: false,
-    revokeMintLater: false,
-    revokeFreeze: true,
+    revokeFreeze: false,
+    revokeUpdate: false,
   });
 
   const { wallet, publicKey } = useWallet();
   const umi = useMemo(() => {
     if (!wallet || !wallet.adapter || !publicKey) return null;
-
     return createUmi("https://api.devnet.solana.com")
       .use(walletAdapterIdentity(wallet.adapter))
       .use(mplTokenMetadata());
@@ -49,9 +61,17 @@ export default function TokenManagementPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  // const [tokens, setTokens] = useState<{ mint: PublicKey; name: string }[]>([]);
-  // const [selectedMint, setSelectedMint] = useState<string>("");
+  const [mintAddressMint, setMintAddressMint] = useState<string>("");
+  const [mintAddressFreeze, setMintAddressFreeze] = useState<string>("");
+  const [mintAddressUpdate, setMintAddressUpdate] = useState<string>("");
+  const [isRevokingMint, setIsRevokingMint] = useState(false);
+  const [isRevokingFreeze, setIsRevokingFreeze] = useState(false);
+  const [isRevokingUpdate, setIsRevokingUpdate] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const connection = useMemo(
+    () => new Connection("https://api.devnet.solana.com", "confirmed"),
+    []
+  );
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {};
@@ -98,7 +118,10 @@ export default function TokenManagementPage() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.type !== "image/png") {
-        alert("Only PNG files are allowed.");
+        toast.error("Only PNG files are allowed.", {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        });
         if (fileInputRef.current) fileInputRef.current.value = "";
         setImageFile(null);
         setFileName(null);
@@ -123,11 +146,18 @@ export default function TokenManagementPage() {
     });
 
     if (!res.ok) {
-      console.error("Failed to upload to IPFS");
+      toast.error("Failed to upload image to IPFS.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
       return null;
     }
 
     const data = await res.json();
+    toast.success("Image uploaded successfully to IPFS!", {
+      className: "bg-green-500 text-white",
+      progressClassName: "bg-green-300",
+    });
     return data.ipfs_hash as string;
   };
 
@@ -144,85 +174,400 @@ export default function TokenManagementPage() {
     });
 
     if (!res.ok) {
-      console.error("Failed to upload metadata file");
+      toast.error("Failed to upload metadata to IPFS.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
       return null;
     }
 
     const data = await res.json();
+    toast.success("Metadata uploaded successfully to IPFS!", {
+      className: "bg-green-500 text-white",
+      progressClassName: "bg-green-300",
+    });
     return data.ipfs_hash as string;
   };
 
   const handleSubmit = async () => {
     if (!validate()) return;
 
-    const ipfsHash = await uploadToPinata();
-
-    if (!ipfsHash) {
-      alert("IPFS upload failed.");
+    if (!wallet?.adapter || !publicKey) {
+      toast.error("Please connect your wallet.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
       return;
     }
 
-    const imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
-    // Ye alert wagera ko toast me change karna before production
-    alert("Validated & Uploaded Successfully!");
-    // Please clear these lines up as well
-    console.log("IPFS Hash:", ipfsHash);
-    console.log(formData);
-    console.log(publicKey);
+    try {
+      const ipfsHash = await uploadToPinata();
+      if (!ipfsHash) return;
 
-    const metadata = {
-      name: formData.name,
-      symbol: formData.symbol,
-      description: formData.description,
-      image: imageUrl,
-    };
-
-    const metadataHash = await uploadMetadataToPinata(metadata);
-    if (!metadataHash) return;
-
-    const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
-    // Remove this line before production plej
-    console.log("Metadata URL:", metadataUrl);
-
-    const decimals = Number(formData.decimals);
-    const rawSupply = Number(formData.totalSupply);
-    const supply = BigInt(rawSupply * 10 ** decimals);
-
-    const { signature, mintAddress, explorerLink } =
-      await createTokenWithMetadata({
+      const imageUrl = `https://gateway.pinata.cloud/ipfs/${ipfsHash}`;
+      const metadata = {
         name: formData.name,
-        metadataUri: metadataUrl,
-        decimals,
-        supply,
-        revokeMint: formData.revokeMint,
-        userWallet: wallet?.adapter!,
         symbol: formData.symbol,
+        description: formData.description,
+        image: imageUrl,
+      };
+
+      const metadataHash = await uploadMetadataToPinata(metadata);
+      if (!metadataHash) return;
+
+      const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
+
+      const decimals = Number(formData.decimals);
+      const rawSupply = Number(formData.totalSupply);
+      const supply = BigInt(rawSupply * 10 ** decimals);
+
+      const { signature, mintAddress, explorerLink } =
+        await createTokenWithMetadata({
+          name: formData.name,
+          metadataUri: metadataUrl,
+          decimals,
+          supply,
+          revokeMint: formData.revokeMint,
+          revokeFreeze: formData.revokeFreeze,
+          userWallet: wallet.adapter,
+          symbol: formData.symbol,
+        });
+
+      // Mint address toast with copy button
+      toast.info(
+        ({ closeToast }) => (
+          <div className="flex items-center gap-2">
+            <span>Mint Address: {mintAddress.toBase58()}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                navigator.clipboard.writeText(mintAddress.toBase58());
+                toast.success("Mint address copied to clipboard!", {
+                  className: "bg-green-500 text-white",
+                  progressClassName: "bg-green-300",
+                });
+              }}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+          </div>
+        ),
+        {
+          className: "bg-blue-500 text-white",
+          progressClassName: "bg-blue-300",
+        }
+      );
+
+      // Signature toast
+      toast.info(
+        ({ closeToast }) => (
+          <div className="flex items-center gap-2">
+            <span>
+              Transaction Signature: {signature.slice(0, 4)}...
+              {signature.slice(-4)}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  `https://solscan.io/tx/${signature}?cluster=devnet`,
+                  "_blank"
+                )
+              }
+            >
+              <ExternalLink className="w-4 h-4" />
+            </Button>
+          </div>
+        ),
+        {
+          className: "bg-blue-500 text-white",
+          progressClassName: "bg-blue-300",
+        }
+      );
+
+      // Token creation success toast
+      toast.success(
+        ({ closeToast }) => (
+          <div className="space-y-2">
+            <p>Token created successfully!</p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(mintAddress.toBase58());
+                  toast.success("Mint address copied to clipboard!", {
+                    className: "bg-green-500 text-white",
+                    progressClassName: "bg-green-300",
+                  });
+                }}
+              >
+                Copy Mint Address
+                <Copy className="w-4 h-4 ml-2" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.open(
+                    `https://solscan.io/token/${mintAddress.toBase58()}?cluster=devnet`,
+                    "_blank"
+                  )
+                }
+              >
+                View on Solscan
+                <ExternalLink className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        ),
+        {
+          className: "bg-green-500 text-white",
+          progressClassName: "bg-green-300",
+        }
+      );
+
+      setFormData({
+        name: "",
+        symbol: "",
+        decimals: 6,
+        description: "",
+        file: null,
+        totalSupply: "",
+        revokeMint: false,
+        revokeFreeze: false,
+        revokeUpdate: false,
       });
-    // Please remove this later on
-    console.log(
-      `Token Signature: ${signature} \nMint Address: ${mintAddress} \nExplorer Link: ${explorerLink}`
-    );
-    if (formData.revokeMintLater)
-    await revokeMintAfter(
-      {
-        mint: mintAddress,
-        userWallet: wallet?.adapter!,
-      }
-    );
-    setFormData({
-      name: "",
-      symbol: "",
-      decimals: 6,
-      description: "",
-      file: null,
-      totalSupply: "",
-      revokeMint: false,
-      revokeMintLater: false,
-      revokeFreeze: true,
-    });
-    setImageFile(null);
-    setFileName(null);
-    setPreviewUrl(null);
+      setImageFile(null);
+      setFileName(null);
+      setPreviewUrl(null);
+    } catch (error: any) {
+      toast.error(
+        error.message || "Failed to create token. Please try again.",
+        {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        }
+      );
+    }
+  };
+
+  const handleRevokeMint = async () => {
+    if (!mintAddressMint) {
+      toast.error("Please enter a valid mint address.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+    if (!wallet?.adapter || !publicKey) {
+      toast.error("Please connect your wallet.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    let mintPublicKey: PublicKey;
+    try {
+      mintPublicKey = new PublicKey(mintAddressMint);
+    } catch (error) {
+      toast.error("Invalid mint address provided.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    setIsRevokingMint(true);
+    try {
+      const { signature, explorerLink } = await revokeMintAfter({
+        mint: mintPublicKey,
+        userWallet: wallet.adapter,
+      });
+      toast.success(
+        ({ closeToast }) => (
+          <div className="space-y-2">
+            <p>Mint authority revoked successfully!</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  `https://solscan.io/tx/${signature}?cluster=devnet`,
+                  "_blank"
+                )
+              }
+            >
+              View on Solscan
+              <ExternalLink className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        ),
+        {
+          className: "bg-green-500 text-white",
+          progressClassName: "bg-green-300",
+        }
+      );
+      setMintAddressMint("");
+    } catch (error: any) {
+      toast.error(
+        error.message ||
+          "Failed to revoke mint authority. Please ensure you have the authority and the mint address is valid.",
+        {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        }
+      );
+    } finally {
+      setIsRevokingMint(false);
+    }
+  };
+
+  const handleRevokeFreeze = async () => {
+    if (!mintAddressFreeze) {
+      toast.error("Please enter a valid mint address.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+    if (!wallet?.adapter || !publicKey) {
+      toast.error("Please connect your wallet.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    let mintPublicKey: PublicKey;
+    try {
+      mintPublicKey = new PublicKey(mintAddressFreeze);
+    } catch (error) {
+      toast.error("Invalid mint address provided.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    setIsRevokingFreeze(true);
+    try {
+      const { signature, explorerLink } = await revokeFreezeAfter({
+        mint: mintPublicKey,
+        userWallet: wallet.adapter,
+      });
+      toast.success(
+        ({ closeToast }) => (
+          <div className="space-y-2">
+            <p>Freeze authority revoked successfully!</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  `https://solscan.io/tx/${signature}?cluster=devnet`,
+                  "_blank"
+                )
+              }
+            >
+              View on Solscan
+              <ExternalLink className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        ),
+        {
+          className: "bg-green-500 text-white",
+          progressClassName: "bg-green-300",
+        }
+      );
+      setMintAddressFreeze("");
+    } catch (error: any) {
+      toast.error(
+        error.message ||
+          "Failed to revoke freeze authority. Please ensure you have the authority and the mint address is valid.",
+        {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        }
+      );
+    } finally {
+      setIsRevokingFreeze(false);
+    }
+  };
+
+  const handleRevokeUpdate = async () => {
+    if (!mintAddressUpdate) {
+      toast.error("Please enter a valid mint address.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+    if (!wallet?.adapter || !publicKey) {
+      toast.error("Please connect your wallet.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    let mintPublicKey: PublicKey;
+    try {
+      mintPublicKey = new PublicKey(mintAddressUpdate);
+    } catch (error) {
+      toast.error("Invalid mint address provided.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+      return;
+    }
+
+    setIsRevokingUpdate(true);
+    try {
+      const { signature, explorerLink } = await revokeUpdateAfter({
+        mint: mintPublicKey,
+        userWallet: wallet.adapter,
+      });
+      toast.success(
+        ({ closeToast }) => (
+          <div className="space-y-2">
+            <p>Update authority revoked successfully!</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  `https://solscan.io/tx/${signature}?cluster=devnet`,
+                  "_blank"
+                )
+              }
+            >
+              View on Solscan
+              <ExternalLink className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        ),
+        {
+          className: "bg-green-500 text-white",
+          progressClassName: "bg-green-300",
+        }
+      );
+      setMintAddressUpdate("");
+    } catch (error: any) {
+      toast.error(
+        error.message ||
+          "Failed to revoke update authority. Please ensure you have the authority and the mint address is valid.",
+        {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        }
+      );
+    } finally {
+      setIsRevokingUpdate(false);
+    }
   };
 
   const ConnectWalletSection = () => (
@@ -233,6 +578,14 @@ export default function TokenManagementPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-10">
+      <ToastContainer
+        position="top-right"
+        autoClose={false}
+        closeOnClick
+        pauseOnHover
+        theme="colored"
+        className="z-50"
+      />
       <section className="text-center space-y-3">
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           Meme Coin Tools
@@ -244,7 +597,7 @@ export default function TokenManagementPage() {
       </section>
 
       <Tabs defaultValue="create-token" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-12">
+        <TabsList className="grid w-full mx-auto grid-cols-2 sm:grid-cols-3 h-12">
           <TabsTrigger
             value="create-token"
             className="text-base flex items-center gap-2"
@@ -252,26 +605,19 @@ export default function TokenManagementPage() {
             <Coins className="w-4 h-4" /> Create Token
           </TabsTrigger>
           <TabsTrigger
+            value="add-liquidity"
+            className="text-base flex items-center gap-2"
+          >
+            <DropletIcon className="w-4 h-4" /> Create Liquidity Pool
+          </TabsTrigger>
+          <TabsTrigger
             value="burn-coin"
             className="text-base flex items-center gap-2"
           >
             <Flame className="w-4 h-4" /> Burn Coin
           </TabsTrigger>
-          <TabsTrigger
-            value="add-liquidity"
-            className="text-base flex items-center gap-2"
-          >
-            <DropletIcon className="w-4 h-4" /> Add Liquidity
-          </TabsTrigger>
-          <TabsTrigger
-            value="remove-liquidity"
-            className="text-base flex items-center gap-2"
-          >
-            <DropletOff className="w-4 h-4" /> Remove Liquidity
-          </TabsTrigger>
         </TabsList>
 
-        {/* Create Token Tab Content */}
         <TabsContent value="create-token" className="mt-8 space-y-8">
           <section className="bg-muted p-6 rounded-xl shadow-lg space-y-4">
             <h2 className="text-2xl font-semibold text-center">How it works</h2>
@@ -287,8 +633,8 @@ export default function TokenManagementPage() {
             </ol>
             <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border border-primary/20">
               Total cost:{" "}
-              <span className="font-semibold text-primary">0.3 SOL</span> –
-              includes all creation fees.
+              <span className="font-semibold text-primary">0.3 SOL</span> + gas
+              fees.
             </div>
           </section>
 
@@ -401,7 +747,6 @@ export default function TokenManagementPage() {
                   )}
                 </div>
 
-                {/* File Upload */}
                 <div className="space-y-2">
                   <Label htmlFor="file-upload">Token Logo (PNG)</Label>
                   <div className="relative flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 transition-colors">
@@ -442,26 +787,30 @@ export default function TokenManagementPage() {
                   )}
                 </div>
 
-                {/* Freeze Authority Switch */}
                 <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
                   <div className="space-y-1">
                     <Label htmlFor="revoke-freeze" className="text-base">
                       Revoke Freeze Authority
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      Required for creating a liquidity pool. This ensures no
-                      one can freeze token accounts.
+                      Prevents freezing of token accounts – required for
+                      liquidity pools. Optional.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Switch id="revoke-freeze" checked disabled />
+                    <Switch
+                      id="revoke-freeze"
+                      checked={formData.revokeFreeze}
+                      onCheckedChange={(val) =>
+                        setFormData({ ...formData, revokeFreeze: val })
+                      }
+                    />
                     <span className="text-sm text-muted-foreground">
                       (0.1 SOL)
                     </span>
                   </div>
                 </div>
 
-                {/* Mint Authority Switch */}
                 <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
                   <div className="space-y-1">
                     <Label htmlFor="revoke-mint" className="text-base">
@@ -486,11 +835,40 @@ export default function TokenManagementPage() {
                   </div>
                 </div>
 
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
+                  <div className="space-y-1">
+                    <Label htmlFor="revoke-mint" className="text-base">
+                      Revoke Update Authority
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Prevents any further metadata update – useful for building
+                      trust. Optional.{" "}
+                      <b>
+                        <br />
+                        Do not revoke if you would like to change the token
+                        metadata later on!
+                      </b>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="revoke-mint"
+                      checked={formData.revokeMint}
+                      onCheckedChange={(val) =>
+                        setFormData({ ...formData, revokeUpdate: val })
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      (0.1 SOL)
+                    </span>
+                  </div>
+                </div>
+
                 <Button
                   className="w-full mt-4"
                   size="lg"
                   onClick={handleSubmit}
-                  type="submit"
+                  disabled={!publicKey}
                 >
                   Create Token
                 </Button>
@@ -498,39 +876,232 @@ export default function TokenManagementPage() {
             </Card>
           </section>
 
-          {/* Mint Revoke For Deployed Tokens Section*/}
           <section className="space-y-4">
             <Card className="shadow-lg">
               <CardHeader className="text-center">
                 <CardTitle className="text-2xl">
-                  Revoke Mint Authority (Deployed Tokens)
+                  Revoke Mint Authority
                 </CardTitle>
                 <CardDescription>
-                  For tokens already created without mint authority revoked.
+                  Revoke the mint authority for a token to prevent further
+                  minting.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground text-center">
-                  You can revoke minting permissions after token creation if not
-                  done earlier.
+                  Enter the token mint address to revoke its mint authority.
+                  This action is irreversible.
                 </p>
-                <div className="flex justify-center items-center gap-2">
-                  <Switch
-                    checked={formData.revokeMintLater}
-                    onCheckedChange={(val) =>
-                      setFormData({ ...formData, revokeMintLater: val })
-                    }
+                <div className="space-y-2">
+                  <Label htmlFor="mint-address-mint">Token Mint Address</Label>
+                  <Input
+                    id="mint-address-mint"
+                    placeholder="Enter mint address (e.g., 7xKX...yzAB)"
+                    value={mintAddressMint}
+                    onChange={(e) => setMintAddressMint(e.target.value)}
                   />
-                  <span className="text-sm text-muted-foreground">
-                    (0.1 SOL)
-                  </span>
                 </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleRevokeMint}
+                  disabled={isRevokingMint || !mintAddressMint || !publicKey}
+                >
+                  {isRevokingMint ? "Revoking..." : "Revoke Mint Authority"}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl">
+                  Revoke Freeze Authority
+                </CardTitle>
+                <CardDescription>
+                  Revoke the freeze authority to prevent freezing token
+                  accounts.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground text-center">
+                  Enter the token mint address to revoke its freeze authority.
+                  This action is irreversible.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="mint-address-freeze">
+                    Token Mint Address
+                  </Label>
+                  <Input
+                    id="mint-address-freeze"
+                    placeholder="Enter mint address (e.g., 7xKX...yzAB)"
+                    value={mintAddressFreeze}
+                    onChange={(e) => setMintAddressFreeze(e.target.value)}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleRevokeFreeze}
+                  disabled={
+                    isRevokingFreeze || !mintAddressFreeze || !publicKey
+                  }
+                >
+                  {isRevokingFreeze ? "Revoking..." : "Revoke Freeze Authority"}
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl">
+                  Revoke Update Authority
+                </CardTitle>
+                <CardDescription>
+                  Revoke the update authority to make token metadata immutable.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground text-center">
+                  Enter the token mint address to revoke its update authority.
+                  This action is irreversible.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="mint-address-update">
+                    Token Mint Address
+                  </Label>
+                  <Input
+                    id="mint-address-update"
+                    placeholder="Enter mint address (e.g., 7xKX...yzAB)"
+                    value={mintAddressUpdate}
+                    onChange={(e) => setMintAddressUpdate(e.target.value)}
+                  />
+                </div>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={handleRevokeUpdate}
+                  disabled={
+                    isRevokingUpdate || !mintAddressUpdate || !publicKey
+                  }
+                >
+                  {isRevokingUpdate ? "Revoking..." : "Revoke Update Authority"}
+                </Button>
               </CardContent>
             </Card>
           </section>
         </TabsContent>
 
-        {/* Burn Coin Tab Content */}
+        <TabsContent value="add-liquidity" className="mt-8">
+          <Card className="shadow-lg">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">
+                Create a Liquidity Pool
+              </CardTitle>
+              <CardDescription>
+                A liquidity pool lets people trade your token on Raydium, a
+                popular Solana exchange. Pair your token with SOL to enable
+                trading and earn fees.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-muted p-6 rounded-xl shadow-lg space-y-4">
+                <h2 className="text-xl font-semibold text-center">
+                  How to Create a Liquidity Pool
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Follow these steps to set up your pool using Raydium’s
+                  interface. Make sure your token is ready before starting.
+                </p>
+                <ol className="list-decimal list-inside text-muted-foreground space-y-2">
+                  <li>
+                    <strong>Revoke Freeze Authority</strong>: Your token must
+                    have its freeze authority disabled to create a pool. Go to
+                    the “Revoke Freeze Authority” section on this page, enter
+                    your token’s mint address, and confirm the transaction
+                    (costs ~0.1 SOL).
+                  </li>
+                  <li>
+                    <strong>Connect Your Wallet</strong>: Ensure your Solana
+                    wallet is connected with enough SOL (~0.5–3 SOL for fees,
+                    plus SOL for liquidity) and your token balance.
+                  </li>
+                  <li>
+                    <strong>Select Your Token</strong>: In the Raydium interface
+                    below, choose your token as the “Base Token.”
+                  </li>
+                  <li>
+                    <strong>Choose a Quote Token</strong>: Select SOL as the
+                    paired token (recommended for most pools).
+                  </li>
+                  <li>
+                    <strong>Set Liquidity Amounts</strong>: Enter the amount of
+                    your token (recommended: 95% or more of your supply) and SOL
+                    (recommended: 10+ SOL). The SOL amount sets your token’s
+                    starting price.
+                  </li>
+                  <li>
+                    <strong>Choose Pool Fees</strong>: Select a fee rate
+                    (recommended: 0.25%). Liquidity providers earn 84% of
+                    trading fees, while 16% goes to Raydium.
+                  </li>
+                  <li>
+                    <strong>Set Start Time (Optional)</strong>: Choose when
+                    trading starts, or leave it to begin immediately.
+                  </li>
+                  <li>
+                    <strong>Create the Pool</strong>: Click “Initialize
+                    Liquidity Pool” and approve the transactions in your wallet.
+                    This creates an OpenBook Market ID (~0.55–3 SOL) and
+                    initializes the pool (~0.5 SOL).
+                  </li>
+                  <li>
+                    <strong>Receive LP Tokens</strong>: After creation, you’ll
+                    get LP tokens representing your share of the pool. Save the
+                    AMM ID to find your pool later.
+                  </li>
+                  <li>
+                    <strong>Next Steps</strong>: To build trust, burn or lock
+                    your LP tokens. Go to the “Burn Tokens” tab to burn them
+                    (permanently locks liquidity) or use a third-party service
+                    like{" "}
+                    <a
+                      href="https://sol-incinerator.com/"
+                      target="_blank"
+                      className="text-primary"
+                    >
+                      Sol Incinerator
+                    </a>{" "}
+                    to lock them for at least 6 months. Check your pool’s status
+                    on Raydium’s liquidity page or{" "}
+                    <a
+                      href="https://dexscreener.com"
+                      target="_blank"
+                      className="text-primary"
+                    >
+                      Dexscreener
+                    </a>
+                    .
+                  </li>
+                </ol>
+                <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border border-primary/20">
+                  Total cost:{" "}
+                  <span className="font-semibold text-primary">~0.5–3 SOL</span>{" "}
+                  + your token and SOL for liquidity.
+                </div>
+              </div>
+              <div className="flex justify-center">
+                <iframe
+                  src="https://raydium.io/liquidity/create-pool/"
+                  title="Raydium Liquidity Pool Creator"
+                  width="500"
+                  height="1000"
+                  style={{ border: "none", borderRadius: "1rem" }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="burn-coin" className="mt-8">
           <Card className="shadow-lg">
             <CardHeader className="text-center">
@@ -545,7 +1116,7 @@ export default function TokenManagementPage() {
                 <Label htmlFor="token-address-burn">Token Address</Label>
                 <Input
                   id="token-address-burn"
-                  placeholder="Enter token address (e.g., 7x...)"
+                  placeholder="Enter token address (e.g., 7xKX...)"
                 />
               </div>
               <div className="space-y-2">
@@ -559,81 +1130,6 @@ export default function TokenManagementPage() {
               </div>
               <Button className="w-full" size="lg">
                 Burn Tokens
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Add Liquidity Pool Tab Content */}
-        <TabsContent value="add-liquidity" className="mt-8">
-          <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Add Liquidity Pool</CardTitle>
-              <CardDescription>
-                Create or add liquidity to a trading pair for your token.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="token-address-lp">Your Token Address</Label>
-                <Input
-                  id="token-address-lp"
-                  placeholder="Enter your token address"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="sol-amount">SOL Amount</Label>
-                <Input
-                  id="sol-amount"
-                  type="number"
-                  placeholder="e.g., 10"
-                  min="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="token-amount">Your Token Amount</Label>
-                <Input
-                  id="token-amount"
-                  type="number"
-                  placeholder="e.g., 10000000"
-                  min="0"
-                />
-              </div>
-              <Button className="w-full" size="lg">
-                Add Liquidity
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Remove Liquidity Pool Tab Content */}
-        <TabsContent value="remove-liquidity" className="mt-8">
-          <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Remove Liquidity Pool</CardTitle>
-              <CardDescription>
-                Withdraw your assets from an existing liquidity pool.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="lp-token-address">LP Token Address</Label>
-                <Input
-                  id="lp-token-address"
-                  placeholder="Enter LP token address"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lp-amount">Amount of LP Tokens to Remove</Label>
-                <Input
-                  id="lp-amount"
-                  type="number"
-                  placeholder="e.g., 50"
-                  min="0"
-                />
-              </div>
-              <Button className="w-full" size="lg">
-                Remove Liquidity
               </Button>
             </CardContent>
           </Card>

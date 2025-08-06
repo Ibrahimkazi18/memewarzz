@@ -20,6 +20,7 @@ import {
   LENGTH_SIZE,
   createMintToCheckedInstruction,
   createSetAuthorityInstruction,
+  AuthorityType,
 } from "@solana/spl-token";
 import {
   createInitializeInstruction,
@@ -29,7 +30,6 @@ import {
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
 import { WalletAdapter } from "@solana/wallet-adapter-base";
-import { AuthorityType } from "@metaplex-foundation/mpl-toolbox";
 
 type CreateTokenParams = {
   name: string;
@@ -39,11 +39,7 @@ type CreateTokenParams = {
   supply: bigint;
   userWallet: WalletAdapter;
   revokeMint: boolean;
-};
-
-type RevokeAfterParams = {
-  mint: PublicKey;
-  userWallet: WalletAdapter;
+  revokeFreeze: boolean;
 };
 
 export const createTokenWithMetadata = async ({
@@ -54,6 +50,7 @@ export const createTokenWithMetadata = async ({
   supply,
   userWallet,
   revokeMint,
+  revokeFreeze,
 }: CreateTokenParams) => {
   // Step 1: Set up Umi for wallet integration
   const umi = createUmi("https://api.devnet.solana.com").use(
@@ -88,8 +85,8 @@ export const createTokenWithMetadata = async ({
   };
 
   // Step 7: Calculate mint size and lamports
-  const metadataExtension = 4; // TYPE_SIZE (2) + LENGTH_SIZE (2)
-  const metadataLen = TYPE_SIZE + LENGTH_SIZE + pack(metaData).length;
+  const metadataExtension = TYPE_SIZE + LENGTH_SIZE;
+  const metadataLen = pack(metaData).length;
   const mintLen = getMintLen([ExtensionType.MetadataPointer]);
   const lamports = await connection.getMinimumBalanceForRentExemption(
     mintLen + metadataExtension + metadataLen
@@ -119,7 +116,7 @@ export const createTokenWithMetadata = async ({
     mint,
     decimals,
     payerPublicKey,
-    null,
+    revokeFreeze ? null : payerPublicKey,
     TOKEN_2022_PROGRAM_ID
   );
 
@@ -171,6 +168,15 @@ export const createTokenWithMetadata = async ({
     TOKEN_2022_PROGRAM_ID
   );
 
+  const revokeFreezeAuthorityIx = createSetAuthorityInstruction(
+    mint,
+    payerPublicKey,
+    AuthorityType.FreezeAccount,
+    revokeFreeze ? null : payerPublicKey,
+    [],
+    TOKEN_2022_PROGRAM_ID
+  );
+
   // Step 9: Build transaction
   const transaction = new Transaction().add(
     createAccountInstruction,
@@ -179,7 +185,8 @@ export const createTokenWithMetadata = async ({
     initializeMetadataInstruction,
     createAtaInstruction,
     mintInstruction,
-    revokeMintAuthorityIx
+    revokeMintAuthorityIx,
+    revokeFreezeAuthorityIx,
   );
 
   // Step 10: Simulate transaction
@@ -198,6 +205,7 @@ export const createTokenWithMetadata = async ({
       createAtaInstruction,
       mintInstruction,
       revokeMintAuthorityIx,
+      revokeFreezeAuthorityIx,
     ],
   }).compileToV0Message();
   const versionedTransaction = new VersionedTransaction(message);
