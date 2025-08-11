@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/card";
 import {
   DropletIcon,
-  DropletOff,
   Upload,
   Coins,
   Flame,
@@ -35,6 +34,7 @@ import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import CreateLiquidityPool from "@/components/createLP";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -992,114 +992,7 @@ export default function TokenManagementPage() {
         </TabsContent>
 
         <TabsContent value="add-liquidity" className="mt-8">
-          <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">
-                Create a Liquidity Pool
-              </CardTitle>
-              <CardDescription>
-                A liquidity pool lets people trade your token on Raydium, a
-                popular Solana exchange. Pair your token with SOL to enable
-                trading and earn fees.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="bg-muted p-6 rounded-xl shadow-lg space-y-4">
-                <h2 className="text-xl font-semibold text-center">
-                  How to Create a Liquidity Pool
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Follow these steps to set up your pool using Raydium’s
-                  interface. Make sure your token is ready before starting.
-                </p>
-                <ol className="list-decimal list-inside text-muted-foreground space-y-2">
-                  <li>
-                    <strong>Revoke Freeze Authority</strong>: Your token must
-                    have its freeze authority disabled to create a pool. Go to
-                    the “Revoke Freeze Authority” section on this page, enter
-                    your token’s mint address, and confirm the transaction
-                    (costs ~0.1 SOL).
-                  </li>
-                  <li>
-                    <strong>Connect Your Wallet</strong>: Ensure your Solana
-                    wallet is connected with enough SOL (~0.5–3 SOL for fees,
-                    plus SOL for liquidity) and your token balance.
-                  </li>
-                  <li>
-                    <strong>Select Your Token</strong>: In the Raydium interface
-                    below, choose your token as the “Base Token.”
-                  </li>
-                  <li>
-                    <strong>Choose a Quote Token</strong>: Select SOL as the
-                    paired token (recommended for most pools).
-                  </li>
-                  <li>
-                    <strong>Set Liquidity Amounts</strong>: Enter the amount of
-                    your token (recommended: 95% or more of your supply) and SOL
-                    (recommended: 10+ SOL). The SOL amount sets your token’s
-                    starting price.
-                  </li>
-                  <li>
-                    <strong>Choose Pool Fees</strong>: Select a fee rate
-                    (recommended: 0.25%). Liquidity providers earn 84% of
-                    trading fees, while 16% goes to Raydium.
-                  </li>
-                  <li>
-                    <strong>Set Start Time (Optional)</strong>: Choose when
-                    trading starts, or leave it to begin immediately.
-                  </li>
-                  <li>
-                    <strong>Create the Pool</strong>: Click “Initialize
-                    Liquidity Pool” and approve the transactions in your wallet.
-                    This creates an OpenBook Market ID (~0.55–3 SOL) and
-                    initializes the pool (~0.5 SOL).
-                  </li>
-                  <li>
-                    <strong>Receive LP Tokens</strong>: After creation, you’ll
-                    get LP tokens representing your share of the pool. Save the
-                    AMM ID to find your pool later.
-                  </li>
-                  <li>
-                    <strong>Next Steps</strong>: To build trust, burn or lock
-                    your LP tokens. Go to the “Burn Tokens” tab to burn them
-                    (permanently locks liquidity) or use a third-party service
-                    like{" "}
-                    <a
-                      href="https://sol-incinerator.com/"
-                      target="_blank"
-                      className="text-primary"
-                    >
-                      Sol Incinerator
-                    </a>{" "}
-                    to lock them for at least 6 months. Check your pool’s status
-                    on Raydium’s liquidity page or{" "}
-                    <a
-                      href="https://dexscreener.com"
-                      target="_blank"
-                      className="text-primary"
-                    >
-                      Dexscreener
-                    </a>
-                    .
-                  </li>
-                </ol>
-                <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border border-primary/20">
-                  Total cost:{" "}
-                  <span className="font-semibold text-primary">~0.5–3 SOL</span>{" "}
-                  + your token and SOL for liquidity.
-                </div>
-              </div>
-              <div className="flex justify-center">
-                <iframe
-                  src="https://raydium.io/liquidity/create-pool/"
-                  title="Raydium Liquidity Pool Creator"
-                  width="500"
-                  height="1000"
-                  style={{ border: "none", borderRadius: "1rem" }}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <CreateLiquidityPool connection={connection} />
         </TabsContent>
 
         <TabsContent value="burn-coin" className="mt-8">

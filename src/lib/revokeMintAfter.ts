@@ -1,7 +1,6 @@
 import {
   Connection,
   PublicKey,
-  TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
   clusterApiUrl,
