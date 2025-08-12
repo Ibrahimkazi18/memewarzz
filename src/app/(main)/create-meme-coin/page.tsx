@@ -991,7 +991,7 @@ export default function TokenManagementPage() {
           </section>
         </TabsContent>
 
-        <TabsContent value="add-liquidity" className="mt-8">
+        <TabsContent value="add-liquidity">
           <CreateLiquidityPool connection={connection} />
         </TabsContent>
 
