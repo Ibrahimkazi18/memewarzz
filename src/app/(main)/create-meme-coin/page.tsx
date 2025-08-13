@@ -35,6 +35,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import CreateLiquidityPool from "@/components/createLP";
+import BurnTokens, { TokenInventory } from "@/components/burnTokens";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -229,6 +230,7 @@ export default function TokenManagementPage() {
           supply,
           revokeMint: formData.revokeMint,
           revokeFreeze: formData.revokeFreeze,
+          revokeUpdate: formData.revokeUpdate,
           userWallet: wallet.adapter,
           symbol: formData.symbol,
         });
@@ -837,7 +839,7 @@ export default function TokenManagementPage() {
 
                 <div className="flex items-center justify-between p-4 border rounded-lg bg-card">
                   <div className="space-y-1">
-                    <Label htmlFor="revoke-mint" className="text-base">
+                    <Label htmlFor="revoke-update" className="text-base">
                       Revoke Update Authority
                     </Label>
                     <p className="text-sm text-muted-foreground">
@@ -852,8 +854,8 @@ export default function TokenManagementPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Switch
-                      id="revoke-mint"
-                      checked={formData.revokeMint}
+                      id="revoke-update"
+                      checked={formData.revokeUpdate}
                       onCheckedChange={(val) =>
                         setFormData({ ...formData, revokeUpdate: val })
                       }
@@ -1005,25 +1007,7 @@ export default function TokenManagementPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="token-address-burn">Token Address</Label>
-                <Input
-                  id="token-address-burn"
-                  placeholder="Enter token address (e.g., 7xKX...)"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="amount-to-burn">Amount to Burn</Label>
-                <Input
-                  id="amount-to-burn"
-                  type="number"
-                  placeholder="e.g., 1000000"
-                  min="0"
-                />
-              </div>
-              <Button className="w-full" size="lg">
-                Burn Tokens
-              </Button>
+              <TokenInventory connection={connection} />
             </CardContent>
           </Card>
         </TabsContent>

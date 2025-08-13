@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { type Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
   getMint,
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
   getAccount,
-  TOKEN_PROGRAM_ID,
+  getTokenMetadata,
+  getMetadataPointerState,
 } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
@@ -61,7 +63,7 @@ interface PoolFormState {
   isCreatingPool: boolean;
 }
 
-// seed tokens kept only for quote list; base will exclude them
+// Seed tokens for initial quote list
 const defaultTokens: TokenInfoExtended[] = [
   {
     chainId: 0,
@@ -117,24 +119,26 @@ export default function CreateLiquidityPool({
   const [isCreatingPool, setIsCreatingPool] =
     useState<PoolFormState["isCreatingPool"]>(false);
 
-  // tokenList used for quote + general lookup. Base options filtered to token-2022 only.
   const [tokenList, setTokenList] =
     useState<TokenInfoExtended[]>(defaultTokens);
-
-  // canonical tokenlist map for metadata lookup
   const [solanaTokenListMap, setSolanaTokenListMap] = useState<
     Map<string, any>
   >(new Map());
-
   const [raydium, setRaydium] = useState<Raydium | null>(null);
 
-  // UI: popover toggles to show creatable selects inline
+  // Metadata cache
+  const metadataCache = new Map<
+    string,
+    { symbol?: string; name?: string; image?: string }
+  >();
+
+  // UI: popover toggles
   const [showBaseSelect, setShowBaseSelect] = useState(false);
   const [showQuoteSelect, setShowQuoteSelect] = useState(false);
   const baseSelectRef = useRef<HTMLDivElement | null>(null);
   const quoteSelectRef = useRef<HTMLDivElement | null>(null);
 
-  // initialize Raydium (as before)
+  // Initialize Raydium
   useEffect(() => {
     const init = async () => {
       if (raydium) return;
@@ -158,7 +162,6 @@ export default function CreateLiquidityPool({
       }
     };
     init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connection, publicKey, signAllTransactions]);
 
   useEffect(() => {
@@ -170,7 +173,7 @@ export default function CreateLiquidityPool({
     }
   }, [raydium, publicKey]);
 
-  // fetch canonical tokenlist for metadata lookup (fallbacks)
+  // Fetch Solana token list for metadata fallback
   useEffect(() => {
     (async () => {
       try {
@@ -189,7 +192,7 @@ export default function CreateLiquidityPool({
         }
         setSolanaTokenListMap(map);
 
-        // refresh default tokens metadata if present
+        // Update default tokens metadata
         setTokenList((prev) =>
           prev.map((t) => {
             const found = map.get(t.address);
@@ -213,7 +216,7 @@ export default function CreateLiquidityPool({
     })();
   }, [connection]);
 
-  // update SOL balance for seed in tokenList
+  // Update SOL balance
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -263,10 +266,9 @@ export default function CreateLiquidityPool({
         ],
         Metadata.PROGRAM_ID
       );
-      const acc = await connection.getAccountInfo(pda);
+      const acc = await connection.getAccountInfo(pda, "confirmed");
       if (!acc || !acc.data) return null;
       if (typeof Metadata.deserialize === "function") {
-        // @ts-ignore
         const [metadata] = Metadata.deserialize(acc.data);
         const md = metadata?.data;
         if (md) {
@@ -277,7 +279,6 @@ export default function CreateLiquidityPool({
           };
         }
       } else if (typeof Metadata.fromAccountInfo === "function") {
-        // @ts-ignore
         const { metadata } = Metadata.fromAccountInfo(acc);
         if (metadata?.data) {
           const md = metadata.data;
@@ -289,78 +290,133 @@ export default function CreateLiquidityPool({
         }
       }
       return null;
-    } catch {
+    } catch (e) {
+      console.warn(
+        `Failed to fetch Metaplex metadata for mint ${mintPubkey}:`,
+        e
+      );
       return null;
     }
   };
 
-  // fetch token info on-chain (used when user pastes mint)
+  // Fetch token info on-chain
   async function fetchTokenInfo(
     mint: string
   ): Promise<TokenInfoExtended | null> {
     try {
       const mintPubkey = new PublicKey(mint);
-      const accountInfo = await connection.getAccountInfo(mintPubkey);
+      const accountInfo = await connection.getAccountInfo(
+        mintPubkey,
+        "confirmed"
+      );
       if (!accountInfo) throw new Error("Mint not found on chain.");
 
       const isToken2022 = accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
-      const programIdForMint = isToken2022
-        ? TOKEN_2022_PROGRAM_ID
-        : TOKEN_PROGRAM_ID;
+      const programId = isToken2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
 
+      // Get mint info
       let decimals = 0;
       try {
         const mintInfo = await getMint(
           connection,
           mintPubkey,
-          undefined,
-          programIdForMint
+          "confirmed",
+          programId
         );
         decimals = mintInfo?.decimals ?? 0;
-      } catch {
+      } catch (e) {
+        console.warn(`Failed to fetch mint info for ${mint}:`, e);
         decimals = 0;
       }
 
-      let name = "";
-      let symbol = "";
-      let image = "";
+      let name: string | undefined;
+      let symbol: string | undefined;
+      let image: string | undefined;
 
-      try {
-        const md = await tryFetchMetaplexMetadata(mintPubkey);
-        if (md) {
-          name = md.name || "";
-          symbol = md.symbol || "";
-          if (md.uri) {
+      // Check cache first
+      if (metadataCache.has(mint)) {
+        const cached = metadataCache.get(mint)!;
+        symbol = cached.symbol;
+        name = cached.name;
+        image = cached.image;
+      } else {
+        // Try Token Metadata Interface for Token-2022
+        if (isToken2022) {
+          for (let attempt = 0; attempt < 3; attempt++) {
             try {
-              const uriResp = await fetch(md.uri, { cache: "no-store" })
-                .then((r) => r.json())
-                .catch(() => null);
-              if (uriResp)
-                image =
-                  uriResp.image || uriResp.image_url || uriResp.logo || "";
-            } catch {
-              // ignore
+              const metadataPointer = getMetadataPointerState(
+                await getMint(connection, mintPubkey, "confirmed", programId)
+              );
+              if (metadataPointer?.metadataAddress) {
+                const metadata = await getTokenMetadata(connection, mintPubkey);
+                if (metadata) {
+                  symbol = metadata.symbol || undefined;
+                  name = metadata.name || undefined;
+                  // Skip URI fetch for performance
+                  // image = metadata.uri ? (await (await fetch(metadata.uri)).json()).image : undefined;
+                  break;
+                }
+              }
+            } catch (e) {
+              console.warn(
+                `Token Metadata attempt ${
+                  attempt + 1
+                } failed for mint ${mint}:`,
+                e
+              );
+              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
             }
           }
         }
-      } catch {
-        // ignore
-      }
 
-      if ((!name || !symbol) && solanaTokenListMap.size > 0) {
-        const found = solanaTokenListMap.get(mint);
-        if (found) {
-          name = name || found.name || "";
-          symbol = symbol || found.symbol || "";
-          image = image || found.logoURI || found.logo || "";
-          decimals =
-            typeof found.decimals === "number" ? found.decimals : decimals;
+        // Fallback to Metaplex for SPL tokens
+        if (!symbol && !name && !isToken2022) {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const md = await tryFetchMetaplexMetadata(mintPubkey);
+              if (md) {
+                symbol = md.symbol || undefined;
+                name = md.name || undefined;
+                // Skip URI fetch
+                // if (md.uri) {
+                //   const uriResp = await fetch(md.uri, { cache: "no-store" }).then((r) => r.json());
+                //   image = uriResp?.image || uriResp?.image_url || uriResp?.logo || undefined;
+                // }
+                break;
+              }
+            } catch (e) {
+              console.warn(
+                `Metaplex attempt ${attempt + 1} failed for mint ${mint}:`,
+                e
+              );
+              if (attempt < 2) await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+        }
+
+        // Fallback to Solana token list
+        if (!symbol || !name) {
+          const found = solanaTokenListMap.get(mint);
+          if (found) {
+            symbol = found.symbol || symbol || undefined;
+            name = found.name || name || undefined;
+            image = found.logoURI || found.logo || image || undefined;
+            decimals =
+              typeof found.decimals === "number" ? found.decimals : decimals;
+          }
+        }
+
+        // Final fallback
+        if (!symbol) symbol = mint.slice(0, 6);
+        if (!name) name = mint;
+
+        // Cache metadata
+        if (symbol || name || image) {
+          metadataCache.set(mint, { symbol, name, image });
         }
       }
 
-      if (!symbol) symbol = mint.slice(0, 6);
-      if (!name) name = mint;
-
+      // Fetch balance
       let balance = "0";
       if (publicKey) {
         try {
@@ -368,25 +424,25 @@ export default function CreateLiquidityPool({
             mintPubkey,
             publicKey,
             false,
-            programIdForMint
+            programId
           );
           const account = await getAccount(
             connection,
             ata,
             "confirmed",
-            programIdForMint
+            programId
           );
           const raw = (account as any).amount ?? "0";
           balance = (Number(raw) / 10 ** (decimals || 0)).toString();
         } catch {
-          // ignore
+          // Ignore ATA not found
         }
       }
 
       return {
         chainId: 0,
         address: mint,
-        programId: programIdForMint.toBase58(),
+        programId: programId.toBase58(),
         logoURI: image,
         symbol,
         name,
@@ -403,7 +459,7 @@ export default function CreateLiquidityPool({
     }
   }
 
-  // handle create/pick selection (same logic, with user-friendly toasts)
+  // Handle token selection
   const handleTokenChange = async (
     selectedOption: any,
     setToken: (t: TokenInfoExtended | null) => void
@@ -413,7 +469,7 @@ export default function CreateLiquidityPool({
       return;
     }
 
-    // creatable -> pasted mint
+    // Pasted mint
     if (selectedOption?.__isNew__) {
       const mint = selectedOption.value;
       const info = await fetchTokenInfo(mint);
@@ -425,22 +481,6 @@ export default function CreateLiquidityPool({
         return;
       }
 
-      const wantsBase = setToken === setBaseToken;
-      if (wantsBase && info.programId !== TOKEN_2022_PROGRAM_ID.toBase58()) {
-        // still add for quote usage
-        setTokenList((prev) =>
-          prev.some((t) => t.address === info.address) ? prev : [...prev, info]
-        );
-        toast.error(
-          "Base token must be token-2022. This token was added to the quote list.",
-          {
-            className: "bg-red-500 text-white",
-            progressClassName: "bg-red-300",
-          }
-        );
-        return;
-      }
-
       setTokenList((prev) =>
         prev.some((t) => t.address === info.address) ? prev : [...prev, info]
       );
@@ -448,7 +488,7 @@ export default function CreateLiquidityPool({
       return;
     }
 
-    // selected from built options
+    // Selected from options
     const item = selectedOption;
     const built: TokenInfoExtended = {
       chainId: 0,
@@ -465,97 +505,120 @@ export default function CreateLiquidityPool({
       balance: item.balance ?? "0",
     };
 
-    if (
-      setToken === setBaseToken &&
-      built.programId !== TOKEN_2022_PROGRAM_ID.toBase58()
-    ) {
-      toast.error(
-        "Base token must be token-2022. Please choose another token or paste a token-2022 mint.",
-        {
-          className: "bg-red-500 text-white",
-          progressClassName: "bg-red-300",
-        }
-      );
-      return;
-    }
-
     setToken(built);
   };
 
-  // price helper
+  // Price helper
   const initialPrice =
     baseAmount && quoteAmount && Number(baseAmount) > 0
       ? Number(quoteAmount) / Number(baseAmount)
       : null;
 
-  // react-select styles: match slate + green active
+  // React-select styles: opaque control and menu
   const selectStyles = {
     control: (base: any, state: any) => ({
       ...base,
-      backgroundColor: "hsl(var(--background))",
-      borderColor: state.isFocused ? "rgb(34 197 94)" : "hsl(var(--border))",
+      backgroundColor: state.isFocused
+        ? "rgb(245, 245, 245) !important"
+        : "rgb(255, 255, 255) !important",
+      opacity: "1 !important",
+      borderColor: state.isFocused ? "rgb(34 197 94)" : "rgb(200, 200, 200)",
       borderRadius: "8px",
       minHeight: "48px",
       boxShadow: state.isFocused ? "0 0 0 2px rgb(34 197 94 / 0.2)" : "none",
       "&:hover": { borderColor: "rgb(34 197 94)" },
+      paddingLeft: "12px",
+      "@media (prefers-color-scheme: dark)": {
+        backgroundColor: state.isFocused
+          ? "rgb(39, 39, 39) !important"
+          : "rgb(24, 24, 24) !important",
+        borderColor: state.isFocused ? "rgb(34 197 94)" : "rgb(82, 82, 82)",
+      },
     }),
     menu: (base: any) => ({
       ...base,
-      backgroundColor: "hsl(var(--popover))",
-      border: "1px solid hsl(var(--border))",
+      backgroundColor: "rgb(255, 255, 255) !important",
+      opacity: "1 !important",
+      border: "1px solid rgb(200, 200, 200)",
       borderRadius: "8px",
       boxShadow:
         "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.05)",
       zIndex: 9999,
+      "@media (prefers-color-scheme: dark)": {
+        backgroundColor: "rgb(24, 24, 24) !important",
+        border: "1px solid rgb(82, 82, 82)",
+      },
+    }),
+    menuList: (base: any) => ({
+      ...base,
+      backgroundColor: "rgb(255, 255, 255) !important",
+      opacity: "1 !important",
+      "@media (prefers-color-scheme: dark)": {
+        backgroundColor: "rgb(24, 24, 24) !important",
+      },
     }),
     option: (base: any, state: any) => ({
       ...base,
       backgroundColor: state.isSelected
-        ? "rgb(34 197 94)"
+        ? "rgb(34 197 94) !important"
         : state.isFocused
-        ? "hsl(var(--accent))"
-        : "transparent",
-      color: state.isSelected ? "#fff" : "hsl(var(--foreground))",
-      "&:hover": { backgroundColor: "hsl(var(--accent))" },
+        ? "rgb(230, 230, 230) !important"
+        : "rgb(255, 255, 255) !important",
+      opacity: "1 !important",
+      color: state.isSelected ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)",
+      "&:hover": { backgroundColor: "rgb(230, 230, 230) !important" },
+      "@media (prefers-color-scheme: dark)": {
+        backgroundColor: state.isSelected
+          ? "rgb(34 197 94) !important"
+          : state.isFocused
+          ? "rgb(64, 64, 64) !important"
+          : "rgb(24, 24, 24) !important",
+        color: state.isSelected ? "rgb(255, 255, 255)" : "rgb(229, 231, 235)",
+        "&:hover": { backgroundColor: "rgb(64, 64, 64) !important" },
+      },
     }),
     singleValue: (base: any) => ({
       ...base,
-      color: "hsl(var(--foreground))",
+      color: "rgb(0, 0, 0)",
+      opacity: "1 !important",
+      paddingLeft: "12px",
+      "@media (prefers-color-scheme: dark)": {
+        color: "rgb(229, 231, 235)",
+      },
     }),
-    placeholder: (base: any) => ({
+    placeholder: (base: any, state: any) => ({
       ...base,
-      color: "hsl(var(--muted-foreground))",
+      color: "rgb(100, 100, 100)",
+      opacity:
+        state.hasValue || state.isFocused ? "0 !important" : "1 !important",
+      transition: "opacity 0.2s ease",
+      position: "absolute",
+      left: "12px",
+      top: "50%",
+      transform: "translateY(-50%)",
+      pointerEvents: "none",
+      "@media (prefers-color-scheme: dark)": {
+        color: "rgb(156, 163, 175)",
+      },
     }),
     input: (base: any) => ({
       ...base,
-      color: "hsl(var(--foreground))",
+      color: "rgb(0, 0, 0)",
+      backgroundColor: "transparent !important",
+      opacity: "1 !important",
+      zIndex: 1,
+      paddingLeft: "12px",
+      "@media (prefers-color-scheme: dark)": {
+        color: "rgb(229, 231, 235)",
+        backgroundColor: "transparent !important",
+      },
     }),
   };
 
-  // build options: quote includes default tokens; base filters out SOL/USDC seeds and only includes token-2022 programId entries if programId is present.
-  const buildOptionsQuote = () =>
-    tokenList.map((t) => ({
-      value: t.address,
-      label: t.symbol,
-      name: t.name,
-      image: t.image || t.logoURI || "",
-      decimals: t.decimals,
-      programId: t.programId,
-      balance: t.balance,
-    }));
-
+  // Build options for base and quote
   const buildOptionsBase = () =>
     tokenList
-      .filter((t) => {
-        // exclude seed SOL/USDC for base (they are not token-2022)
-        if (
-          t.address === defaultTokens[0].address ||
-          t.address === defaultTokens[1].address
-        )
-          return false;
-        // prefer tokens with programId known token-2022; if unknown, exclude (we require token-2022)
-        return t.programId === TOKEN_2022_PROGRAM_ID.toBase58();
-      })
+      .filter((t) => t.address !== quoteToken?.address) // Avoid selecting same token
       .map((t) => ({
         value: t.address,
         label: t.symbol,
@@ -566,7 +629,20 @@ export default function CreateLiquidityPool({
         balance: t.balance,
       }));
 
-  // small wrappers for toasts matching your project's theme
+  const buildOptionsQuote = () =>
+    tokenList
+      .filter((t) => t.address !== baseToken?.address) // Avoid selecting same token
+      .map((t) => ({
+        value: t.address,
+        label: t.symbol,
+        name: t.name,
+        image: t.image || t.logoURI || "",
+        decimals: t.decimals,
+        programId: t.programId,
+        balance: t.balance,
+      }));
+
+  // Toast wrappers
   const showError = (m: string) =>
     toast.error(m, {
       className: "bg-red-500 text-white",
@@ -583,7 +659,7 @@ export default function CreateLiquidityPool({
       progressClassName: "bg-blue-300",
     });
 
-  // create pool logic (keeps same Raydium usage)
+  // Create pool logic (unchanged)
   const handleCreatePool = async () => {
     if (
       !baseToken ||
@@ -671,7 +747,7 @@ export default function CreateLiquidityPool({
         txVersion: TxVersion.V0,
       });
 
-      // simulate
+      // Simulate
       const simulation = await connection.simulateTransaction(transaction, {
         commitment: "confirmed",
         sigVerify: false,
@@ -686,7 +762,7 @@ export default function CreateLiquidityPool({
       }
       showSuccess("Simulation passed.");
 
-      // execute
+      // Execute
       const { txId } = await execute({ sendAndConfirm: true });
       showSuccess(`Pool created! Tx: ${txId}`);
     } catch (err: any) {
@@ -699,9 +775,9 @@ export default function CreateLiquidityPool({
     }
   };
 
-  // render option label: mint only shown in menu (the "meta.context" param is provided by react-select)
+  // Render option label
   const formatOptionLabel = (option: any, { context }: any) => {
-    const showMint = context === "menu"; // Only show mint in dropdown menu, not in selected value
+    const showMint = context === "menu";
     return (
       <div className="flex items-center justify-between w-full">
         <div className="flex items-center space-x-3 overflow-hidden">
@@ -734,7 +810,7 @@ export default function CreateLiquidityPool({
     );
   };
 
-  // close select on outside click (simple)
+  // Close select on outside click
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (
@@ -752,16 +828,31 @@ export default function CreateLiquidityPool({
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
+  // Open Raydium portfolio
+  const openPortfolio = (url = "https://raydium.io/portfolio/") => {
+    try {
+      toast.info("Opening Raydium Portfolio in a new tab...", {
+        className: "bg-blue-600 text-white",
+        progressClassName: "bg-blue-300",
+      });
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      toast.error("Failed to open Raydium Portfolio.", {
+        className: "bg-red-500 text-white",
+        progressClassName: "bg-red-300",
+      });
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto py-8 space-y-10">
       <section className="bg-muted p-6 rounded-xl shadow-lg space-y-4">
-        <h2 className="text-2xl font-semibold text-center">
-          How it works
-        </h2>
+        <h2 className="text-2xl font-semibold text-center">How it works</h2>
         <p className="text-muted-foreground text-left">
           <ol className="list-decimal list-inside space-y-2 text-left inline-block">
             <li>
-              Select your Token 2022 as the <strong>Base Token</strong>.
+              Select your token (SPL or Token-2022) as the{" "}
+              <strong>Base Token</strong>.
             </li>
             <li>
               Enter the amount to deposit into the pool (recommended: 95%+ of
@@ -803,10 +894,10 @@ export default function CreateLiquidityPool({
         <CardContent className="space-y-6">
           <div className="space-y-5">
             <Label className="text-base font-medium px-2">
-              Base Token (Token 2022)
+              Base Token
               <div className="flex items-center ml-auto gap-2">
                 <span className="text-sm gap-2 underline text-muted-foreground flex items-center">
-                  <Wallet size={20}/> {baseToken?.balance || "0"}
+                  <Wallet size={20} /> {baseToken?.balance || "0"}
                 </span>
                 <Button
                   variant="outline"
@@ -864,11 +955,12 @@ export default function CreateLiquidityPool({
                     </div>
                   ) : (
                     <span className="text-lg flex">Select base token</span>
-                  )}<ChevronDown className="size-6"/>
+                  )}
+                  <ChevronDown className="size-6" />
                 </Button>
 
                 {showBaseSelect && (
-                  <div className="absolute top-full left-0 right-0 mt-2 z-[9999]">
+                  <div className="absolute top-full left-0 right-0 mt-2">
                     <CreatableSelect
                       styles={selectStyles}
                       options={buildOptionsBase()}
@@ -895,30 +987,41 @@ export default function CreateLiquidityPool({
               <div className="items-center w-4/6 gap-3">
                 <div>
                   <Input
-                    type="text"
+                    type="number"
+                    inputMode="decimal"
                     placeholder="0.0"
                     value={baseAmount}
-                    inputMode="decimal"
                     min="0"
+                    step="0.000000001"
                     max={baseToken?.balance || "0"}
                     onChange={(e) => {
-                      const value = Math.max(0, Number(e.target.value));
-                      setBaseAmount(value.toString());
+                      const value = e.target.value;
+                      if (value === "" || value === ".") {
+                        setBaseAmount("");
+                        return;
+                      }
+                      const num = parseFloat(value);
+                      if (isNaN(num) || num < 0) return;
+                      if (
+                        baseToken?.balance &&
+                        num > parseFloat(baseToken.balance)
+                      )
+                        return;
+                      setBaseAmount(value);
                     }}
-                    className="!text-lg h-15 bg-zinc-200 dark:bg-zinc-900 "
+                    className="!text-lg h-15 bg-zinc-200 dark:bg-zinc-900"
                   />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Quote section styled same as Base */}
           <div className="space-y-5">
             <Label className="text-base px-2 font-medium">
               Quote Token
               <div className="flex items-center ml-auto gap-2">
                 <span className="text-sm flex gap-2 underline items-center text-muted-foreground">
-                  <Wallet size={20}/> {quoteToken?.balance || "0"}
+                  <Wallet size={20} /> {quoteToken?.balance || "0"}
                 </span>
                 <Button
                   variant="outline"
@@ -973,15 +1076,18 @@ export default function CreateLiquidityPool({
                             "/vercel.svg?height=24&width=24")
                         }
                       />
-                      <span className="font-medium text-lg">{quoteToken.symbol}</span>
+                      <span className="font-medium text-lg">
+                        {quoteToken.symbol}
+                      </span>
                     </div>
                   ) : (
                     <span className="flex text-lg">Select quote token</span>
-                  )}<ChevronDown className="size-6"/>
+                  )}
+                  <ChevronDown className="size-6" />
                 </Button>
 
                 {showQuoteSelect && (
-                  <div className="absolute top-full left-0 right-0 mt-2 z-[9999]">
+                  <div className="absolute top-full left-0 right-0 mt-2">
                     <CreatableSelect
                       styles={selectStyles}
                       options={buildOptionsQuote()}
@@ -1009,15 +1115,27 @@ export default function CreateLiquidityPool({
               <div className="items-center w-4/6 gap-3">
                 <div>
                   <Input
-                    type="text"
+                    type="number"
                     inputMode="decimal"
                     placeholder="0.0"
                     value={quoteAmount}
                     min="0"
+                    step="0.000000001"
                     max={quoteToken?.balance || "0"}
                     onChange={(e) => {
-                      const value = Math.max(0, Number(e.target.value));
-                      setQuoteAmount(value.toString());
+                      const value = e.target.value;
+                      if (value === "" || value === ".") {
+                        setQuoteAmount("");
+                        return;
+                      }
+                      const num = parseFloat(value);
+                      if (isNaN(num) || num < 0) return;
+                      if (
+                        quoteToken?.balance &&
+                        num > parseFloat(quoteToken.balance)
+                      )
+                        return;
+                      setQuoteAmount(value);
                     }}
                     className="!text-lg h-15 bg-zinc-200 dark:bg-zinc-900"
                   />
@@ -1076,6 +1194,192 @@ export default function CreateLiquidityPool({
           >
             {isCreatingPool ? "Creating Pool..." : "Create Liquidity Pool"}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-lg">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">
+            Remove Liquidity — Quick Guide
+          </CardTitle>
+          <CardDescription>
+            Short, exact steps (from Raydium UI) to remove liquidity safely.
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            <p>
+              Use Raydium's Portfolio UI to remove liquidity for a specific
+              pool. This guide walks you from the Portfolio page — we do not
+              perform removals for you.
+            </p>
+
+            <p className="mt-2 font-medium">Steps (exact):</p>
+            <ol className="list-decimal list-inside ml-4 space-y-2 mt-2">
+              <li>Go to Raydium.</li>
+              <li>
+                Click on <strong>Portfolio</strong>.
+              </li>
+              <li>Find the pool you want to remove from.</li>
+              <li>
+                Click the little <strong>minus (−)</strong> icon on that
+                position.
+              </li>
+              <li>
+                Select the amount you want to remove, then click{" "}
+                <strong>Remove</strong>.
+              </li>
+            </ol>
+
+            <div className="mt-4">
+              <p className="font-medium">About LP tokens</p>
+              <ul className="list-disc list-inside ml-4 space-y-1 text-sm text-muted-foreground">
+                <li>
+                  When you add liquidity Raydium mints LP tokens to your wallet
+                  — these represent your share of the pool.
+                </li>
+                <li>
+                  To remove liquidity you must hold the LP tokens for that pool.
+                  Removing burns LP tokens and returns the underlying assets.
+                </li>
+                <li>
+                  <strong>If LP tokens were burned/locked</strong> (eg. you or a
+                  contract burned them to lock liquidity), you{" "}
+                  <strong>cannot</strong> remove that liquidity — nor add more
+                  to a pool where supply is locked. Always confirm whether LP
+                  tokens are transferable before attempting add/remove.
+                </li>
+                <li>
+                  Removing all liquidity may dramatically affect a token's
+                  market (price / liquidity) — proceed with caution.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-md border border-yellow-200 dark:border-yellow-800">
+            <p className="font-semibold text-yellow-800 dark:text-yellow-200">
+              Important warnings
+            </p>
+            <ul className="list-disc list-inside ml-4 mt-2 text-sm text-yellow-700 dark:text-yellow-100">
+              <li>Double-check token symbols and pool id before removing.</li>
+              <li>
+                If liquidity is locked (LP tokens burned) you cannot remove or
+                fully withdraw.
+              </li>
+              <li>
+                We are not responsible for external site actions — you act at
+                your own risk.
+              </li>
+            </ul>
+          </div>
+
+          <div className="flex gap-3">
+            <Button
+              onClick={() =>
+                openPortfolio(
+                  "https://raydium.io/portfolio/?position_tab=standard"
+                )
+              }
+              className="w-full"
+            >
+              Open Raydium Portfolio
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-lg">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">
+            Add Liquidity — Quick Guide
+          </CardTitle>
+          <CardDescription>
+            How to add more liquidity to an existing pool (if LP tokens are not
+            locked).
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          <div className="text-sm text-muted-foreground">
+            <p>
+              You can top up an existing pool by supplying proportional amounts
+              of both tokens. Use Raydium's Portfolio or Pool UI to add
+              liquidity to a pool you already have a position in (or to any
+              public pool).
+            </p>
+
+            <p className="mt-2 font-medium">Steps (typical):</p>
+            <ol className="list-decimal list-inside ml-4 space-y-2 mt-2">
+              <li>Go to Raydium.</li>
+              <li>
+                Click on <strong>Portfolio</strong> (or visit the{" "}
+                <strong>Liquidity / Add</strong> page).
+              </li>
+              <li>
+                Find the pool you want to add to (or search the pair in the Add
+                Liquidity UI).
+              </li>
+              <li>
+                Click the little <strong>plus (+)</strong> or{" "}
+                <strong>Add</strong> action on that pool.
+              </li>
+              <li>
+                Enter the amounts (UI will usually auto-balance to maintain pool
+                ratio) and confirm the transaction in your wallet.
+              </li>
+            </ol>
+
+            <div className="mt-4">
+              <p className="font-medium">
+                About adding LP tokens & limitations
+              </p>
+              <ul className="list-disc list-inside ml-4 space-y-1 text-sm text-muted-foreground">
+                <li>
+                  Adding liquidity mints additional LP tokens to your wallet
+                  (representing added share).
+                </li>
+                <li>
+                  You can only add if the pool accepts new liquidity — if the
+                  pool’s LP supply has been locked (LP tokens burned) you may be
+                  unable to add more.
+                </li>
+                <li>
+                  Adding liquidity requires proportional amounts of both tokens
+                  (UI commonly helps by auto-calculating the pair amounts).
+                </li>
+                <li>
+                  Consider impermanent loss and that fees earned are shared
+                  across LP holders.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/10 p-3 rounded-md border border-blue-200 dark:border-blue-800">
+            <p className="font-semibold text-blue-800 dark:text-blue-200">
+              Quick checklist before adding
+            </p>
+            <ul className="list-disc list-inside ml-4 mt-2 text-sm text-blue-700 dark:text-blue-100">
+              <li>Confirm pool is the correct token pair.</li>
+              <li>Make sure LP tokens are mintable (not locked).</li>
+              <li>Ensure you have both tokens (or swap beforehand).</li>
+            </ul>
+          </div>
+
+          <div className="flex gap-3">
+            <Button
+              onClick={() =>
+                openPortfolio(
+                  "https://raydium.io/portfolio/?position_tab=standard"
+                )
+              }
+              className="w-full"
+            >
+              Open Raydium Portfolio
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

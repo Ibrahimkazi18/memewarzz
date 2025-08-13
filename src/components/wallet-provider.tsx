@@ -10,6 +10,7 @@ import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
   TorusWalletAdapter,
+  CoinbaseWalletAdapter,
 } from "@solana/wallet-adapter-wallets"
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui"
 import { clusterApiUrl } from "@solana/web3.js"
@@ -26,9 +27,10 @@ export const WalletContextProvider: FC<{ children: ReactNode }> = ({ children })
   const wallets = useMemo(
     () => [
       new PhantomWalletAdapter(),
-      new SolflareWalletAdapter({ network }),
+      new SolflareWalletAdapter(),
       new TorusWalletAdapter(),
       new LedgerWalletAdapter(),
+      new CoinbaseWalletAdapter(),
     ],
     [network],
   )

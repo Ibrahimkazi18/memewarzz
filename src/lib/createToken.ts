@@ -24,6 +24,7 @@ import {
 } from "@solana/spl-token";
 import {
   createInitializeInstruction,
+  createUpdateAuthorityInstruction,
   pack,
   TokenMetadata,
 } from "@solana/spl-token-metadata";
@@ -40,6 +41,7 @@ type CreateTokenParams = {
   userWallet: WalletAdapter;
   revokeMint: boolean;
   revokeFreeze: boolean;
+  revokeUpdate: boolean;
 };
 
 export const createTokenWithMetadata = async ({
@@ -51,6 +53,7 @@ export const createTokenWithMetadata = async ({
   userWallet,
   revokeMint,
   revokeFreeze,
+  revokeUpdate,
 }: CreateTokenParams) => {
   // Step 1: Set up Umi for wallet integration
   const umi = createUmi("https://api.devnet.solana.com").use(
@@ -157,25 +160,29 @@ export const createTokenWithMetadata = async ({
     TOKEN_2022_PROGRAM_ID
   );
 
-  // Conditionally add revoke instruction
+  // Conditionally add revoke mint authority
+  let revokeMintAuthorityIx;
+  if (revokeMint) {
+    revokeMintAuthorityIx = createSetAuthorityInstruction(
+      mint,
+      payerPublicKey,
+      AuthorityType.MintTokens,
+      null,
+      [],
+      TOKEN_2022_PROGRAM_ID
+    );
+  }
 
-  const revokeMintAuthorityIx = createSetAuthorityInstruction(
-    mint,
-    payerPublicKey,
-    AuthorityType.MintTokens,
-    revokeMint ? null : payerPublicKey,
-    [],
-    TOKEN_2022_PROGRAM_ID
-  );
-
-  const revokeFreezeAuthorityIx = createSetAuthorityInstruction(
-    mint,
-    payerPublicKey,
-    AuthorityType.FreezeAccount,
-    revokeFreeze ? null : payerPublicKey,
-    [],
-    TOKEN_2022_PROGRAM_ID
-  );
+  // Conditionally add revoke update authority
+  let revokeUpdateAuthorityIx;
+  if (revokeUpdate) {
+    revokeUpdateAuthorityIx = createUpdateAuthorityInstruction({
+      metadata: mint,
+      oldAuthority: payerPublicKey,
+      newAuthority: null,
+      programId: TOKEN_2022_PROGRAM_ID,
+    });
+  }
 
   // Step 9: Build transaction
   const transaction = new Transaction().add(
@@ -184,11 +191,16 @@ export const createTokenWithMetadata = async ({
     initializeMintInstruction,
     initializeMetadataInstruction,
     createAtaInstruction,
-    mintInstruction,
-    revokeMintAuthorityIx,
-    revokeFreezeAuthorityIx,
+    mintInstruction
   );
 
+  // Add revoke instructions conditionally
+  if (revokeMint && revokeMintAuthorityIx) {
+    transaction.add(revokeMintAuthorityIx);
+  }
+  if (revokeUpdate && revokeUpdateAuthorityIx) {
+    transaction.add(revokeUpdateAuthorityIx);
+  }
   // Step 10: Simulate transaction
   console.log("Simulating transaction...");
   // Get latest blockhash
@@ -204,8 +216,10 @@ export const createTokenWithMetadata = async ({
       initializeMetadataInstruction,
       createAtaInstruction,
       mintInstruction,
-      revokeMintAuthorityIx,
-      revokeFreezeAuthorityIx,
+      ...(revokeMint && revokeMintAuthorityIx ? [revokeMintAuthorityIx] : []),
+      ...(revokeUpdate && revokeUpdateAuthorityIx
+        ? [revokeUpdateAuthorityIx]
+        : []),
     ],
   }).compileToV0Message();
   const versionedTransaction = new VersionedTransaction(message);
