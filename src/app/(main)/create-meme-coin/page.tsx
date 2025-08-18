@@ -35,7 +35,7 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import CreateLiquidityPool from "@/components/createLP";
-import BurnTokens, { TokenInventory } from "@/components/burnTokens";
+import TokenInventory from "@/components/burnTokens";
 
 export default function TokenManagementPage() {
   const [formData, setFormData] = useState({
@@ -118,6 +118,19 @@ export default function TokenManagementPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 1048576) {
+        toast.error("Image size must be 1MB or smaller.", {
+          className: "bg-red-500 text-white",
+          progressClassName: "bg-red-300",
+        });
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        setImageFile(null);
+        setFileName(null);
+        setPreviewUrl(null);
+        return;
+      }
+
+      // Existing PNG type check
       if (file.type !== "image/png") {
         toast.error("Only PNG files are allowed.", {
           className: "bg-red-500 text-white",
@@ -129,6 +142,7 @@ export default function TokenManagementPage() {
         setPreviewUrl(null);
         return;
       }
+
       setImageFile(file);
       setFileName(file.name);
       setPreviewUrl(URL.createObjectURL(file));
@@ -635,7 +649,7 @@ export default function TokenManagementPage() {
             </ol>
             <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border border-primary/20">
               Total cost:{" "}
-              <span className="font-semibold text-primary">0.3 SOL</span> + gas
+              <span className="font-semibold text-primary">0.1 SOL</span> + gas
               fees.
             </div>
           </section>
@@ -807,9 +821,6 @@ export default function TokenManagementPage() {
                         setFormData({ ...formData, revokeFreeze: val })
                       }
                     />
-                    <span className="text-sm text-muted-foreground">
-                      (0.1 SOL)
-                    </span>
                   </div>
                 </div>
 
@@ -831,9 +842,6 @@ export default function TokenManagementPage() {
                         setFormData({ ...formData, revokeMint: val })
                       }
                     />
-                    <span className="text-sm text-muted-foreground">
-                      (0.1 SOL)
-                    </span>
                   </div>
                 </div>
 
@@ -860,9 +868,6 @@ export default function TokenManagementPage() {
                         setFormData({ ...formData, revokeUpdate: val })
                       }
                     />
-                    <span className="text-sm text-muted-foreground">
-                      (0.1 SOL)
-                    </span>
                   </div>
                 </div>
 
@@ -994,7 +999,7 @@ export default function TokenManagementPage() {
         </TabsContent>
 
         <TabsContent value="add-liquidity">
-          <CreateLiquidityPool connection={connection} />
+          <CreateLiquidityPool connection={connection}/>
         </TabsContent>
 
         <TabsContent value="burn-coin" className="mt-8">

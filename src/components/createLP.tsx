@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  LAMPORTS_PER_SOL,
+  SystemProgram,
+  Transaction,
+  TransactionMessage,
+  VersionedTransaction,
+  SendTransactionError,
+} from "@solana/web3.js";
 import {
   getMint,
   TOKEN_2022_PROGRAM_ID,
@@ -352,8 +361,9 @@ export default function CreateLiquidityPool({
                 if (metadata) {
                   symbol = metadata.symbol || undefined;
                   name = metadata.name || undefined;
-                  // Skip URI fetch for performance
-                  // image = metadata.uri ? (await (await fetch(metadata.uri)).json()).image : undefined;
+                  image = metadata.uri
+                    ? (await (await fetch(metadata.uri)).json()).image
+                    : undefined;
                   break;
                 }
               }
@@ -377,11 +387,16 @@ export default function CreateLiquidityPool({
               if (md) {
                 symbol = md.symbol || undefined;
                 name = md.name || undefined;
-                // Skip URI fetch
-                // if (md.uri) {
-                //   const uriResp = await fetch(md.uri, { cache: "no-store" }).then((r) => r.json());
-                //   image = uriResp?.image || uriResp?.image_url || uriResp?.logo || undefined;
-                // }
+                if (md.uri) {
+                  const uriResp = await fetch(md.uri, {
+                    cache: "no-store",
+                  }).then((r) => r.json());
+                  image =
+                    uriResp?.image ||
+                    uriResp?.image_url ||
+                    uriResp?.logo ||
+                    undefined;
+                }
                 break;
               }
             } catch (e) {
@@ -690,21 +705,38 @@ export default function CreateLiquidityPool({
         return;
       }
 
+      // Update balance check to include feeLamports
       const balance = await connection.getBalance(publicKey);
+      const feeLamports = Math.round(0.1 * LAMPORTS_PER_SOL);
       const totalSolNeeded =
         0.3 * LAMPORTS_PER_SOL +
+        feeLamports +
         (baseToken.address === defaultTokens[0].address
           ? baseAmountNum * LAMPORTS_PER_SOL
           : 0) +
         (quoteToken.address === defaultTokens[0].address
           ? quoteAmountNum * LAMPORTS_PER_SOL
-          : 0);
+          : 0) +
+        50000; // Buffer for tx fees
       if (balance < totalSolNeeded) {
         showError(
           `Insufficient SOL. Need about ${(
             totalSolNeeded / LAMPORTS_PER_SOL
           ).toFixed(4)} SOL.`
         );
+        setIsCreatingPool(false);
+        return;
+      }
+
+      // Verify fee receiver account exists
+      const FEE_RECEIVER_ADDRESS = new PublicKey(
+        "5Ho3jiUKmD3Ydiryq9RxEpXdQB6CKSxgiETFibMEEtUM"
+      );
+      const feeReceiverInfo = await connection.getAccountInfo(
+        FEE_RECEIVER_ADDRESS
+      );
+      if (!feeReceiverInfo) {
+        showError("Fee receiver account does not exist on devnet.");
         setIsCreatingPool(false);
         return;
       }
@@ -720,6 +752,27 @@ export default function CreateLiquidityPool({
         decimals: quoteToken.decimals,
       };
 
+      // Check if base token has freeze authority revoked
+      try {
+        const baseMintPubkey = new PublicKey(baseToken.address);
+        const baseMintInfo = await getMint(
+          connection,
+          baseMintPubkey,
+          "confirmed",
+          new PublicKey(baseToken.programId)
+        );
+        if (baseMintInfo.freezeAuthority !== null) {
+          showError("Base token must have its freeze authority revoked.");
+          setIsCreatingPool(false);
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to check base token freeze authority:", e);
+        showError("Failed to verify base token freeze authority.");
+        setIsCreatingPool(false);
+        return;
+      }
+
       const feeConfigs: ApiCpmmConfigInfo[] =
         await raydium.api.getCpmmConfigs();
       feeConfigs.forEach((config) => {
@@ -730,10 +783,14 @@ export default function CreateLiquidityPool({
       });
       const selectedFeeConfig = feeConfigs[feeTierToIndex[feeTier]];
 
-      const mintAAmount = new BN(baseAmountNum * 10 ** baseToken.decimals);
-      const mintBAmount = new BN(quoteAmountNum * 10 ** quoteToken.decimals);
+      const mintAAmount = new BN(
+        (Number(baseAmount) * 10 ** baseToken.decimals).toFixed(0)
+      );
+      const mintBAmount = new BN(
+        (Number(quoteAmount) * 10 ** quoteToken.decimals).toFixed(0)
+      );
 
-      const { execute, transaction } = await raydium.cpmm.createPool({
+      const { transaction } = await raydium.cpmm.createPool({
         programId: DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM,
         poolFeeAccount: DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_FEE_ACC,
         mintA,
@@ -744,17 +801,36 @@ export default function CreateLiquidityPool({
         feeConfig: selectedFeeConfig,
         associatedOnly: false,
         ownerInfo: { useSOLBalance: true },
-        txVersion: TxVersion.V0,
+        txVersion: TxVersion.LEGACY,
       });
 
+      // Create fee transfer instruction
+      const feeTransferIx = SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: FEE_RECEIVER_ADDRESS,
+        lamports: feeLamports,
+      });
+
+      // Create TransactionMessage with all instructions
+      const { blockhash, lastValidBlockHeight } =
+        await connection.getLatestBlockhash("confirmed");
+      const message = new TransactionMessage({
+        payerKey: publicKey,
+        recentBlockhash: blockhash,
+        instructions: [feeTransferIx, ...transaction.instructions],
+      }).compileToV0Message();
+
+      // Create VersionedTransaction
+      const newTransaction = new VersionedTransaction(message);
+
       // Simulate
-      const simulation = await connection.simulateTransaction(transaction, {
+      const simulation = await connection.simulateTransaction(newTransaction, {
         commitment: "confirmed",
         sigVerify: false,
       });
       if (simulation.value.err) {
         showError(
-          "Transaction simulation failed. Check token mints and balances."
+          "Transaction simulation failed. Check token mints, balances, or fee receiver."
         );
         console.error("Simulation logs:", simulation.value.logs);
         setIsCreatingPool(false);
@@ -762,8 +838,41 @@ export default function CreateLiquidityPool({
       }
       showSuccess("Simulation passed.");
 
-      // Execute
-      const { txId } = await execute({ sendAndConfirm: true });
+      // Sign the transaction with the wallet
+      const signedTx = await signTransaction(newTransaction).catch((err) => {
+        throw new Error(`Failed to sign transaction: ${err.message}`);
+      });
+
+      // Send the signed transaction
+      let txId: string;
+      try {
+        txId = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+      } catch (err: any) {
+        if (err instanceof SendTransactionError) {
+          const logs = await err.getLogs(connection);
+          console.error("SendTransactionError logs:", logs);
+          showError(
+            `Transaction failed: ${err.message}. See console for logs.`
+          );
+        } else {
+          showError(`Failed to send transaction: ${err.message}`);
+        }
+        setIsCreatingPool(false);
+        return;
+      }
+
+      // Confirm the transaction
+      await connection.confirmTransaction(
+        {
+          signature: txId,
+          blockhash,
+          lastValidBlockHeight,
+        },
+        "confirmed"
+      );
       showSuccess(`Pool created! Tx: ${txId}`);
     } catch (err: any) {
       console.error("Create pool failed:", err);
@@ -869,7 +978,7 @@ export default function CreateLiquidityPool({
               fees, Raydium receives 16%.
             </li>
             <li>
-              Click <em>“Initialize Liquidity Pool”</em> and approve (~0.5 SOL
+              Click <em>“Initialize Liquidity Pool”</em> and approve (~0.3 SOL
               cost).
             </li>
             <li>Receive LP tokens; burn them to lock liquidity if desired.</li>
@@ -878,7 +987,7 @@ export default function CreateLiquidityPool({
         </p>
 
         <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border">
-          Pool creation fee: <span className="font-semibold">~0.2 SOL</span> +
+          Pool creation fee: <span className="font-semibold">~0.3 SOL(0.1 platform fee + 0.2 for raydium)</span> +
           gas fees
         </div>
       </section>
@@ -987,27 +1096,33 @@ export default function CreateLiquidityPool({
               <div className="items-center w-4/6 gap-3">
                 <div>
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
                     placeholder="0.0"
                     value={baseAmount}
-                    min="0"
-                    step="0.000000001"
-                    max={baseToken?.balance || "0"}
                     onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === "" || value === ".") {
-                        setBaseAmount("");
+                      const v = e.target.value;
+
+                      // allow empty and a lone dot while typing
+                      if (v === "" || v === ".") {
+                        setBaseAmount(v);
                         return;
                       }
-                      const num = parseFloat(value);
-                      if (isNaN(num) || num < 0) return;
-                      if (
-                        baseToken?.balance &&
-                        num > parseFloat(baseToken.balance)
-                      )
-                        return;
-                      setBaseAmount(value);
+
+                      // only digits + single dot
+                      if (!/^\d*\.?\d*$/.test(v)) return;
+
+                      // soft balance check (optional)
+                      if (baseToken?.balance) {
+                        const num = parseFloat(v);
+                        if (
+                          !Number.isNaN(num) &&
+                          num > parseFloat(baseToken.balance)
+                        )
+                          return;
+                      }
+
+                      setBaseAmount(v);
                     }}
                     className="!text-lg h-15 bg-zinc-200 dark:bg-zinc-900"
                   />
@@ -1115,33 +1230,49 @@ export default function CreateLiquidityPool({
               <div className="items-center w-4/6 gap-3">
                 <div>
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
                     placeholder="0.0"
                     value={quoteAmount}
-                    min="0"
-                    step="0.000000001"
-                    max={quoteToken?.balance || "0"}
                     onChange={(e) => {
-                      const value = e.target.value;
-                      if (value === "" || value === ".") {
-                        setQuoteAmount("");
+                      const v = e.target.value;
+
+                      // allow empty and a lone dot while typing
+                      if (v === "" || v === ".") {
+                        setQuoteAmount(v);
                         return;
                       }
-                      const num = parseFloat(value);
-                      if (isNaN(num) || num < 0) return;
-                      if (
-                        quoteToken?.balance &&
-                        num > parseFloat(quoteToken.balance)
-                      )
-                        return;
-                      setQuoteAmount(value);
+
+                      // only digits + single dot
+                      if (!/^\d*\.?\d*$/.test(v)) return;
+
+                      // soft balance check (optional)
+                      if (quoteToken?.balance) {
+                        const num = parseFloat(v);
+                        if (
+                          !Number.isNaN(num) &&
+                          num > parseFloat(quoteToken.balance)
+                        )
+                          return;
+                      }
+
+                      setQuoteAmount(v);
                     }}
                     className="!text-lg h-15 bg-zinc-200 dark:bg-zinc-900"
                   />
                 </div>
               </div>
             </div>
+            <h1 className="text-center">
+              Don't have tokens for quote amount?{" "}
+              <a
+                className="text-blue-500 underline hover:text-blue-600"
+                target="_blank"
+                href="https://raydium.io/swap"
+              >
+                Buy here
+              </a>
+            </h1>
           </div>
 
           <div className="space-y-2">
@@ -1363,7 +1494,7 @@ export default function CreateLiquidityPool({
             </p>
             <ul className="list-disc list-inside ml-4 mt-2 text-sm text-blue-700 dark:text-blue-100">
               <li>Confirm pool is the correct token pair.</li>
-              <li>Make sure LP tokens are mintable (not locked).</li>
+              <li>Make sure LP tokens are mintable (not locked, i.e. not burned).</li>
               <li>Ensure you have both tokens (or swap beforehand).</li>
             </ul>
           </div>

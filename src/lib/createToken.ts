@@ -1,6 +1,7 @@
 import {
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
   Transaction,
@@ -59,7 +60,6 @@ export const createTokenWithMetadata = async ({
   const umi = createUmi("https://api.devnet.solana.com").use(
     walletAdapterIdentity(userWallet)
   );
-  const payer = umi.identity;
 
   // Step 2: Establish connection to Solana devnet
   const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
@@ -75,7 +75,12 @@ export const createTokenWithMetadata = async ({
   const mint = mintKeypair.publicKey;
 
   // Step 5: Convert Umi PublicKey to web3.js PublicKey
-  const payerPublicKey = new PublicKey(payer.publicKey);
+  const payerPublicKey = userWallet.publicKey;
+  if (!payerPublicKey) {
+    throw new Error(
+      "Wallet not connected (userWallet.publicKey is null). Connect wallet and try again."
+    );
+  }
 
   // Step 6: Define metadata
   const metaData: TokenMetadata = {
@@ -94,6 +99,19 @@ export const createTokenWithMetadata = async ({
   const lamports = await connection.getMinimumBalanceForRentExemption(
     mintLen + metadataExtension + metadataLen
   );
+
+  // Define your fee receiver and fee amount
+  const FEE_RECEIVER_ADDRESS = new PublicKey(
+    "5Ho3jiUKmD3Ydiryq9RxEpXdQB6CKSxgiETFibMEEtUM"
+  );
+  const feeLamports = Math.round(0.1 * LAMPORTS_PER_SOL);
+
+  // Create fee transfer instruction
+  const feeTransferIx = SystemProgram.transfer({
+    fromPubkey: payerPublicKey,
+    toPubkey: FEE_RECEIVER_ADDRESS,
+    lamports: feeLamports,
+  });
 
   // Step 8: Build instructions
   // Create account
@@ -186,6 +204,7 @@ export const createTokenWithMetadata = async ({
 
   // Step 9: Build transaction
   const transaction = new Transaction().add(
+    feeTransferIx,
     createAccountInstruction,
     initializeMetadataPointerInstruction,
     initializeMintInstruction,
@@ -205,11 +224,15 @@ export const createTokenWithMetadata = async ({
   console.log("Simulating transaction...");
   // Get latest blockhash
   const { blockhash } = await connection.getLatestBlockhash("confirmed");
+
+  transaction.feePayer = payerPublicKey;
+
   // Convert to VersionedTransaction for simulation
   const message = new TransactionMessage({
     payerKey: payerPublicKey,
     recentBlockhash: blockhash,
     instructions: [
+      feeTransferIx,
       createAccountInstruction,
       initializeMetadataPointerInstruction,
       initializeMintInstruction,
