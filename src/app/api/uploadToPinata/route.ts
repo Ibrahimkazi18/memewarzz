@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const uploadForm = new FormData();
   uploadForm.append("file", new Blob([buffer]), file.name);
-  uploadForm.append("network", "public"); // optional
+  uploadForm.append("network", "public");
 
   try {
     const resp = await axios.post(
@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
       {
         headers: {
           Authorization: `Bearer ${process.env.PINATA_JWT}`,
-          // No need for getHeaders in browser environment
         },
       }
     );

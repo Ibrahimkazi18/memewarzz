@@ -6,7 +6,6 @@ import {
   PublicKey,
   LAMPORTS_PER_SOL,
   SystemProgram,
-  Transaction,
   TransactionMessage,
   VersionedTransaction,
   SendTransactionError,
@@ -707,9 +706,9 @@ export default function CreateLiquidityPool({
 
       // Update balance check to include feeLamports
       const balance = await connection.getBalance(publicKey);
-      const feeLamports = Math.round(0.1 * LAMPORTS_PER_SOL);
+      const feeLamports = Math.round(0.2 * LAMPORTS_PER_SOL);
       const totalSolNeeded =
-        0.3 * LAMPORTS_PER_SOL +
+        0.2 * LAMPORTS_PER_SOL +
         feeLamports +
         (baseToken.address === defaultTokens[0].address
           ? baseAmountNum * LAMPORTS_PER_SOL
@@ -978,7 +977,7 @@ export default function CreateLiquidityPool({
               fees, Raydium receives 16%.
             </li>
             <li>
-              Click <em>“Initialize Liquidity Pool”</em> and approve (~0.3 SOL
+              Click <em>“Initialize Liquidity Pool”</em> and approve (~0.4 SOL
               cost).
             </li>
             <li>Receive LP tokens; burn them to lock liquidity if desired.</li>
@@ -987,7 +986,7 @@ export default function CreateLiquidityPool({
         </p>
 
         <div className="bg-card text-card-foreground p-3 rounded-lg text-center text-sm font-medium border">
-          Pool creation fee: <span className="font-semibold">~0.3 SOL(0.1 platform fee + 0.2 for raydium)</span> +
+          Pool creation fee: <span className="font-semibold">~0.4 SOL(0.2 platform fee + 0.2 for raydium)</span> +
           gas fees
         </div>
       </section>
